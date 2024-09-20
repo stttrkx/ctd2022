@@ -1,39 +1,39 @@
+#!/usr/bin/env python
+# coding: utf-8
+
+"""Class-based Callback inference for integration with Lightning"""
+
 import sys
 import os
 import copy
 import logging
-import tracemalloc
-import gc
-from memory_profiler import profile
-
-from pytorch_lightning.callbacks import Callback
-import torch.nn.functional as F
-import sklearn.metrics
-import matplotlib.pyplot as plt
 import torch
 import numpy as np
+from pytorch_lightning.callbacks import Callback
+import matplotlib.pyplot as plt
 
-from ..utils import build_edges, graph_intersection
-
-"""
-Class-based Callback inference for integration with Lightning
-"""
+from ..utils.embedding_utils import build_edges, graph_intersection
 
 
+#  Lighting Callback
 class EmbeddingTelemetry(Callback):
-
-    """
-    This callback contains standardised tests of the performance of a GNN
-    """
+    """This callback contains standardised tests of the performance of a GNN"""
 
     def __init__(self):
         super().__init__()
+        self.hparams = None
+        self.pt_true = None
+        self.distances = None
+        self.pt_true_pos = None
+        self.truth_graph = None
+        self.truth = None
+        self.preds = None
         logging.info("Constructing telemetry callback")
 
     def on_test_start(self, trainer, pl_module):
-
         """
-        This hook is automatically called when the model is tested after training. The best checkpoint is automatically loaded
+        This hook is automatically called when the model is tested after
+        training. The best checkpoint is automatically loaded.
         """
         self.preds = []
         self.truth = []
@@ -47,7 +47,6 @@ class EmbeddingTelemetry(Callback):
     def on_test_batch_end(
         self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx
     ):
-
         """
         Get the relevant outputs from each batch
         """
@@ -65,7 +64,6 @@ class EmbeddingTelemetry(Callback):
         self.truth_graph.append(outputs["truth_graph"].cpu())
 
     def on_test_end(self, trainer, pl_module):
-
         """
         1. Aggregate all outputs,
         2. Calculate the ROC curve,
@@ -102,7 +100,7 @@ class EmbeddingTelemetry(Callback):
 
         self.distances = torch.cat(self.distances)
         self.truth = torch.cat(self.truth)
-        self.truth_graph = torch.cat(self.truth_graph, axis=1)
+        self.truth_graph = torch.cat(self.truth_graph, dim=1)
 
         r_cuts = np.arange(0.01, self.hparams["r_test"], 0.01)
 
@@ -204,6 +202,7 @@ class EmbeddingBuilder(Callback):
     """
 
     def __init__(self):
+        self.datatypes = None
         self.output_dir = None
         self.overwrite = False
 
@@ -291,13 +290,14 @@ class EmbeddingBuilder(Callback):
         # Make truth bidirectional
         e_bidir = torch.cat(
             [batch.signal_true_edges, batch.signal_true_edges.flip(0)],
-            axis=-1,
+            dim=-1,
         )
 
         # Build the radius graph with radius < r_test
         e_spatial = build_edges(
             spatial, spatial, indices=None, r_max=pl_module.hparams.r_test, k_max=1000
-        )  # This step should remove reliance on r_val, and instead compute an r_build based on the EXACT r required to reach target eff/pur
+        )  # This step should remove reliance on r_val, and instead compute an r_build
+        # based on the EXACT r required to reach target eff/pur
 
         # Arbitrary ordering to remove half of the duplicate edges
         R_dist = torch.sqrt(batch.x[:, 0] ** 2 + batch.x[:, 2] ** 2)

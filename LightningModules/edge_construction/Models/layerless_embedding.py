@@ -1,10 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-
 import torch.nn.functional as F
-
-# Local imports
 from ..embedding_base import EmbeddingBase
 from ..utils.embedding_utils import make_mlp
 
@@ -12,7 +9,7 @@ from ..utils.embedding_utils import make_mlp
 class LayerlessEmbedding(EmbeddingBase):
     def __init__(self, hparams):
         super().__init__(hparams)
-        """Initialise the Lightning Module to scan over different embedding training regimes"""
+        """Initialise the LightningModule to scan over different embedding training regimes"""
 
         # Select Input Regime
         if "ci" in hparams["regime"]:
@@ -34,7 +31,6 @@ class LayerlessEmbedding(EmbeddingBase):
     def forward(self, x):
 
         x_out = self.network(x)
-
         if "norm" in self.hparams["regime"]:
             return F.normalize(x_out)
         else:

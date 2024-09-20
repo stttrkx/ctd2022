@@ -5,12 +5,11 @@ project: EmbeddingStudy
 overwrite: True
 
 # Dataset parameters
-pt_signal_cut: .0        # 1.0, Here, one should set to 0. as simulation is done 1.642 GeV energy, it will retunr empty tensor
-pt_background_cut: .0    # 1.0, Here, one should set to 0. as simulation is done 1.642 GeV energy, it will retunr empty tensor
-train_split: [[800, 100, 100]] # Number of [training, validation, testing] examples
+pt_signal_cut: 1.0
+pt_background_cut: 1.0
+train_split: [[90, 5, 5]] # Number of [training, validation, testing] examples
 true_edges: modulewise_true_edges
 noise: False
-n_workers: 8
 
 # Model parameters
 spatial_channels: 3
@@ -18,38 +17,21 @@ cell_channels: 8
 emb_hidden: 1024
 nb_layer: 4
 emb_dim: 12
-weight: 2                 # ??
+weight: 2
 activation: Tanh
-
-# Random Pairs
 randomisation: 2
-points_per_batch: 100000  # ??
-
-# Build Edges, kNN
-r_train: 0.1              # knn radius (train) [r: float, giving the search radius for 
-                          # the query points (neighbors with distance > search radius would be discarded]
-r_val: 0.1                # knn radius (val)
-r_test: 0.1               # knn radius (test)
-knn: 100                  # knn neighhors (K: int, number of nearest neighbors to return)
-
-# Train Step()
-margin: 0.1
-
-
-# Optimizer
+points_per_batch: 100000
+r_train: 0.1
+r_val: 0.1
+r_test: 0.1
+knn: 100
 warmup: 3
-lr: 0.001
+margin: 0.1
+lr: 0.0001
 factor: 0.3
 patience: 10
-
-regime: [[rp, hnm]]       # [[rp, ci, hnm, norm]]
-
-# Trainer Fit()
-max_epochs: 10
+regime: [[rp, hnm, norm]]
+max_epochs: 30
 
 # Postprocessing
-# callbacks: [[EmbeddingTelemetry, EmbeddingBuilder]]
-callbacks: [[EmbeddingBuilder]]
-
-# Logging
-# wandb_save_dir: /global/cscratch1/sd/danieltm/ExaTrkX/wandb_data
+callbacks: [[EmbeddingTelemetry, EmbeddingBuilder]]
