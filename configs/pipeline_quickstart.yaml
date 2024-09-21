@@ -1,5 +1,6 @@
 stage_list:
-    - {set: data_processing, name: TrackMLFeatureStore, config: prepare_quickstart.yaml, batch_config: configs/batch_cpu_default.yaml, batch_setup: False}
+    #- {set: data_processing, name: TrackMLFeatureStore, config: prepare_quickstart.yaml, batch_config: configs/batch_cpu_default.yaml, batch_setup: False}
+    - {set: edge_construction, name: LayerlessEmbedding, config: train_quickstart_embedding.yaml, batch_config: configs/batch_gpu_default.yaml, batch_setup: False, resume_id: }
     #- {set: edge_labelling, name: CheckResGCN, config: train_quickstart_GCN.yaml, batch_config: configs/batch_gpu_default.yaml, batch_setup: False, resume_id: }
     #- {set: edge_labelling, name: CheckResAGNN, config: train_quickstart_AGNN.yaml, batch_config: configs/batch_gpu_default.yaml, batch_setup: False, resume_id: }
     #- {set: edge_labelling, name: InteractionGNN, config: train_quickstart_IGNN.yaml, batch_config: configs/batch_gpu_default.yaml, batch_setup: True, resume_id: }

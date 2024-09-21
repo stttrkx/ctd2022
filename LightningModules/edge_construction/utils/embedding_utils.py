@@ -136,7 +136,7 @@ def select_data(
                 event[true_edges], pt_where, inverse_mask
             )
 
-            node_features = ["cell_data", "x", "hid", "pid", "pt", "nhits", "primary"]
+            node_features = ["x", "hid", "pid", "pt", "nhits", "primary"]
             for feature in node_features:
                 if feature in event.keys:
                     event[feature] = event[feature][pt_mask]

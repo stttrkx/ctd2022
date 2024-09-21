@@ -1,19 +1,20 @@
 # Input/output configuration
-input_dir: ${EXATRKX_DATA}/run_all/feature_store
-output_dir: ${EXATRKX_DATA}/run_all/graph_construction
+input_dir: ${EXATRKX_DATA}/run/feature_store
+output_dir: ${EXATRKX_DATA}/run/edge_construction
 project: EmbeddingStudy
 overwrite: True
 
 # Dataset parameters
-pt_signal_cut: 1.0
-pt_background_cut: 1.0
-train_split: [[1000, 50, 50]] # Number of [training, validation, testing] examples
-true_edges: modulewise_true_edges
+pt_signal_cut: .0
+pt_background_cut: .0
+train_split: [[90000, 5000, 5000]] # Number of [training, validation, testing] examples
+true_edges: orderwise_true_edges
 noise: False
+n_workers: 16
 
 # Model parameters
 spatial_channels: 3
-cell_channels: 8
+cell_channels: 0
 emb_hidden: 1024
 nb_layer: 4
 emb_dim: 12
