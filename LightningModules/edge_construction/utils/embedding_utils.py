@@ -49,7 +49,6 @@ def load_dataset(
         for event in all_events[:num]:
             try:
                 loaded_event = torch.load(event, map_location=torch.device("cpu"))
-                loaded_event.event_file = event
                 loaded_events.append(loaded_event)
             except:
                 logging.info("Corrupted event file: {}".format(event))

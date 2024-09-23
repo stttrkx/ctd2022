@@ -24,42 +24,52 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 class EmbeddingBase(LightningModule):
     def __init__(self, hparams):
         super().__init__()
-        self.testset = None
-        self.valset = None
-        self.trainset = None
         """
         Initialise the Lightning Module that can scan over different embedding training regimes
         """
+        # Save hyperparameters
         self.save_hyperparameters(hparams)
+
+        # Set workers from hparams
+        self.n_workers = (
+            self.hparams["n_workers"]
+            if "n_workers" in self.hparams
+            else len(os.sched_getaffinity(0))
+        )
+
+        # Instance Variables
+        self.trainset, self.valset, self.testset = None, None, None
 
     def setup(self, stage="fit"):
         self.trainset, self.valset, self.testset = split_datasets(**self.hparams)
 
     def train_dataloader(self):
-        if len(self.trainset) > 0:
+        if self.trainset is not None:
             return DataLoader(
-                self.trainset, batch_size=1, num_workers=self.hparams["n_workers"]
-            )
+                self.trainset, batch_size=1, num_workers=self.n_workers
+            )  # , pin_memory=True, persistent_workers=True)
         else:
             return None
 
     def val_dataloader(self):
-        if len(self.valset) > 0:
+        if self.valset is not None:
             return DataLoader(
-                self.valset, batch_size=1, num_workers=self.hparams["n_workers"]
-            )
+                self.valset, batch_size=1, num_workers=self.n_workers
+            )  # , pin_memory=True, persistent_workers=True)
         else:
             return None
 
     def test_dataloader(self):
-        if len(self.testset):
+        if self.testset is not None:
             return DataLoader(
-                self.testset, batch_size=1, num_workers=self.hparams["n_workers"]
-            )
+                self.testset, batch_size=1, num_workers=self.n_workers
+            )  # , pin_memory=True, persistent_workers=True)
         else:
             return None
 
+    # Configure Optimizer & Scheduler
     def configure_optimizers(self):
+        """Configure the Optimizer and Scheduler"""
         optimizer = [
             torch.optim.AdamW(
                 self.parameters(),

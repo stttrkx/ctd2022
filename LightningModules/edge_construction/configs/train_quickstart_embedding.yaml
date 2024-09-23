@@ -1,6 +1,6 @@
 # Input/output configuration
 input_dir: ${EXATRKX_DATA}/run/feature_store
-output_dir: ${EXATRKX_DATA}/run/edge_construction
+output_dir: ${EXATRKX_DATA}/run/graph_construction
 project: EmbeddingStudy
 overwrite: True
 
@@ -35,4 +35,4 @@ regime: [[rp, hnm, norm]]
 max_epochs: 30
 
 # Postprocessing
-callbacks: [[EmbeddingTelemetry, EmbeddingBuilder]]
+callbacks: [[EmbeddingBuilder]]
