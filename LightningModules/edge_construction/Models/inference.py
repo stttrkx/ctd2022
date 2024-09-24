@@ -22,18 +22,19 @@ class EmbeddingTelemetry(Callback):
     def __init__(self):
         super().__init__()
         self.hparams = None
+        self.truth = None
+        self.preds = None
         self.pt_true = None
         self.distances = None
         self.pt_true_pos = None
         self.truth_graph = None
-        self.truth = None
-        self.preds = None
-        logging.info("Constructing telemetry callback")
+
+        logging.info("Constructing EmbeddingTelemetry Callback")
 
     def on_test_start(self, trainer, pl_module):
         """
-        This hook is automatically called when the model is tested after
-        training. The best checkpoint is automatically loaded.
+        This hook is automatically called when the model is tested
+        after training. The best checkpoint is automatically loaded.
         """
         self.preds = []
         self.truth = []
@@ -72,12 +73,28 @@ class EmbeddingTelemetry(Callback):
         """
 
         metrics = self.calculate_metrics()
-
         metrics_plots = self.plot_metrics(metrics)
-
         self.save_metrics(metrics_plots, pl_module.hparams.output_dir)
 
+    def calculate_metrics(self):
+        """Calculate different metrics."""
+
+        # get transverse momentum metrics
+        centers, ratio_hist = self.get_pt_metrics()
+
+        # get efficiency-purity metrics
+        eff, pur, r_cuts = self.get_eff_pur_metrics()
+
+        metric_dict = {
+            "pt_plot": {"centers": centers, "ratio_hist": ratio_hist},
+            "eff_plot": {"eff": eff, "r_cuts": r_cuts},
+            "pur_plot": {"pur": pur, "r_cuts": r_cuts},
+        }
+
+        return metric_dict
+
     def get_pt_metrics(self):
+        """Calculate Transverse Momentum Metrics"""
 
         pt_true_pos = np.concatenate(self.pt_true_pos, axis=1)
         pt_true = np.concatenate(self.pt_true, axis=1)
@@ -97,6 +114,7 @@ class EmbeddingTelemetry(Callback):
         return centers, ratio_hist
 
     def get_eff_pur_metrics(self):
+        """Calculate Efficiency-Purity Metrics."""
 
         self.distances = torch.cat(self.distances)
         self.truth = torch.cat(self.truth)
@@ -116,18 +134,6 @@ class EmbeddingTelemetry(Callback):
         pur = true_positives / positives
 
         return eff, pur, r_cuts
-
-    def calculate_metrics(self):
-
-        centers, ratio_hist = self.get_pt_metrics()
-
-        eff, pur, r_cuts = self.get_eff_pur_metrics()
-
-        return {
-            "pt_plot": {"centers": centers, "ratio_hist": ratio_hist},
-            "eff_plot": {"eff": eff, "r_cuts": r_cuts},
-            "pur_plot": {"pur": pur, "r_cuts": r_cuts},
-        }
 
     def make_plot(self, x_val, y_val, x_lab, y_lab, title):
 
@@ -149,8 +155,13 @@ class EmbeddingTelemetry(Callback):
             metrics["pt_plot"]["centers"],
             metrics["pt_plot"]["ratio_hist"],
         )
+
         pt_fig, pt_axs = self.make_plot(
-            centers, ratio_hist, "pT (GeV)", "Efficiency", "Metric Learning Efficiency"
+            centers,
+            ratio_hist,
+            "pT (GeV)",
+            "Efficiency",
+            "Metric Learning Efficiency",
         )
 
         eff_fig, eff_axs = self.make_plot(
@@ -160,6 +171,7 @@ class EmbeddingTelemetry(Callback):
             "Eff",
             "Efficiency vs. radius",
         )
+
         pur_fig, pur_axs = self.make_plot(
             metrics["pur_plot"]["r_cuts"],
             metrics["pur_plot"]["pur"],
@@ -167,6 +179,7 @@ class EmbeddingTelemetry(Callback):
             "Pur",
             "Purity vs. radius",
         )
+
         roc_fig, roc_axs = self.make_plot(
             metrics["pur_plot"]["pur"],
             metrics["eff_plot"]["eff"],
@@ -195,10 +208,10 @@ class EmbeddingBuilder(Callback):
 
     This callback is used to apply a trained embedding model to the dataset of a LightningModule.
     The data structure is preloaded in the model, as training, validation and testing sets.
-    Intended usage: run training and examine the telemetry to decide on the hyperparameters (e.g. r_test) that
-    lead to desired efficiency-purity tradeoff. Then set these hyperparameters in the pipeline configuration and run
-    with the --inference flag. Otherwise, to just run straight through automatically, train with this callback included.
-
+    Intended usage: run training and examine the telemetry to decide on the hyperparameters (e.g. r_test)
+    that lead to desired efficiency-purity tradeoff. Then set these hyperparameters in the pipeline
+    configuration and run with the --inference flag. Otherwise, to just run straight through automatically,
+    train with this callback included.
     """
 
     def __init__(self):
