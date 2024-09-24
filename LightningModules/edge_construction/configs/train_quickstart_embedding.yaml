@@ -1,7 +1,7 @@
 # Input/output configuration
-input_dir: ${EXATRKX_DATA}/run/feature_store
+input_dir: ${EXATRKX_DATA}/run/data_processing
 output_dir: ${EXATRKX_DATA}/run/graph_construction
-project: EmbeddingStudy
+project: MetricStudy
 overwrite: True
 
 # Dataset parameters
