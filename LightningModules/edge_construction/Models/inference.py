@@ -268,7 +268,7 @@ class EmbeddingBuilder(Callback):
             pl_module.hparams.overwrite if "overwrite" in pl_module.hparams else False
         )
 
-        # By default, the set of examples propagated through the pipeline will be train+val+test set
+        # By default, the set of examples propagated through the pipeline will be 'train+val+test' set
         datasets = {
             "train": pl_module.trainset,
             "val": pl_module.valset,

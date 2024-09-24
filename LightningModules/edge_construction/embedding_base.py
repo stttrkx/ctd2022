@@ -12,6 +12,7 @@ Example: See Quickstart for a concrete example of this process.
 Todo: Refactor the training & validation steps, since the use of different regimes (rp, hnm, etc.) looks very messy.
 """
 
+import os
 import torch
 import logging
 from pytorch_lightning import LightningModule
@@ -47,7 +48,8 @@ class EmbeddingBase(LightningModule):
         if self.trainset is not None:
             return DataLoader(
                 self.trainset, batch_size=1, num_workers=self.n_workers
-            )  # , pin_memory=True, persistent_workers=True)
+                # , pin_memory=True, persistent_workers=True
+            )
         else:
             return None
 
@@ -55,7 +57,8 @@ class EmbeddingBase(LightningModule):
         if self.valset is not None:
             return DataLoader(
                 self.valset, batch_size=1, num_workers=self.n_workers
-            )  # , pin_memory=True, persistent_workers=True)
+                # , pin_memory=True, persistent_workers=True
+            )
         else:
             return None
 
@@ -63,7 +66,8 @@ class EmbeddingBase(LightningModule):
         if self.testset is not None:
             return DataLoader(
                 self.testset, batch_size=1, num_workers=self.n_workers
-            )  # , pin_memory=True, persistent_workers=True)
+                # , pin_memory=True, persistent_workers=True
+            )
         else:
             return None
 
@@ -208,7 +212,7 @@ class EmbeddingBase(LightningModule):
         """
         Args:
             batch (``list``, required): A list of ``torch.tensor`` objects
-            batch (``int``, required): The index of the batch
+            batch_idx (``int``, required): The index of the batch
 
         Returns:
             ``torch.tensor`` The loss function as a tensor
@@ -235,7 +239,7 @@ class EmbeddingBase(LightningModule):
 
         # Instantiate bidirectional truth (since KNN prediction will be bidirectional)
         e_bidir = torch.cat(
-            [batch.signal_true_edges, batch.signal_true_edges.flip(0)], axis=-1
+            [batch.signal_true_edges, batch.signal_true_edges.flip(0)], dim=-1
         )
 
         # Calculate truth from intersection between Prediction graph and Truth graph

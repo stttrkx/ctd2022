@@ -52,6 +52,7 @@ def load_dataset(
                 loaded_events.append(loaded_event)
             except:
                 logging.info("Corrupted event file: {}".format(event))
+
         loaded_events = select_data(
             loaded_events,
             pt_background_cut,

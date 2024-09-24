@@ -28,11 +28,19 @@ class EmbeddingTelemetry(Callback):
 
     def __init__(self):
         super().__init__()
+        self.hparams = None
+        self.distances = None
+        self.pt_true = None
+        self.pt_true_pos = None
+        self.truth_graph = None
+        self.truth = None
+        self.preds = None
         logging.info("Constructing telemetry callback")
 
     def on_test_start(self, trainer, pl_module):
         """
-        This hook is automatically called when the model is tested after training. The best checkpoint is automatically loaded
+        This hook is automatically called when the model is tested after training.
+        The best checkpoint is automatically loaded.
         """
         self.preds = []
         self.truth = []
@@ -40,7 +48,6 @@ class EmbeddingTelemetry(Callback):
         self.pt_true_pos = []
         self.pt_true = []
         self.distances = []
-
         self.hparams = pl_module.hparams
 
     def on_test_batch_end(
@@ -99,7 +106,7 @@ class EmbeddingTelemetry(Callback):
 
         self.distances = torch.cat(self.distances)
         self.truth = torch.cat(self.truth)
-        self.truth_graph = torch.cat(self.truth_graph, axis=1)
+        self.truth_graph = torch.cat(self.truth_graph, dim=1)
 
         r_cuts = np.linspace(self.hparams["r_test"] / 10, self.hparams["r_test"], 10)
 
@@ -192,6 +199,8 @@ class EmbeddingBuilder(Callback):
     """
 
     def __init__(self):
+        self.datatypes = None
+        self.checkpoint_dir = None
         self.output_dir = None
         self.overwrite = False
 
@@ -306,13 +315,14 @@ class EmbeddingBuilder(Callback):
         # Make truth bidirectional
         e_bidir = torch.cat(
             [batch.signal_true_edges, batch.signal_true_edges.flip(0)],
-            axis=-1,
+            dim=-1,
         )
 
         # Build the radius graph with radius < r_test
         e_spatial = build_edges(
             spatial, spatial, indices=None, r_max=pl_module.hparams.r_test, k_max=1000
-        )  # This step should remove reliance on r_val, and instead compute an r_build based on the EXACT r required to reach target eff/pur
+        )  # This step should remove reliance on r_val, and instead compute an 
+        # r_build based on the EXACT r required to reach target eff/pur
 
         # Arbitrary ordering to remove half of the duplicate edges
         R_dist = torch.sqrt(batch.x[:, 0] ** 2 + batch.x[:, 2] ** 2)
@@ -341,4 +351,3 @@ class EmbeddingBuilder(Callback):
             torch.save(batch, pickle_file)
 
         logging.info("Saved event {}".format(batch.event_file[-4:]))
-
