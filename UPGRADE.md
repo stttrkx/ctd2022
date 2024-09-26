@@ -1,5 +1,10 @@
 ## _Upgrading Pipeline_
 
+### _Upgrade Code_
+
+Upgrate code to the latest version of PyTorch Lightning.
+
+
 ### _Renaming of Stages_
 
 We will rename the each stage to reflect the functionality of these stages in the pipeline. For example,
