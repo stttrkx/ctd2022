@@ -39,7 +39,7 @@ class TuneBase(pl.LightningModule):
             if "n_workers" in self.hparams
             else len(os.sched_getaffinity(0))
         )
-        
+
         self.batch_size = self.hparams["batchsize"]
         self.train_acc = tm.Accuracy()
         self.valid_acc = tm.Accuracy()
@@ -106,7 +106,7 @@ class TuneBase(pl.LightningModule):
 
         if self.hparams["cell_channels"] > 0:
             input_data = torch.cat(
-                [batch.cell_data[:, :self.hparams["cell_channels"]], batch.x], dim=-1
+                [batch.cell_data[:, : self.hparams["cell_channels"]], batch.x], dim=-1
             )
             input_data[input_data != input_data] = 0
         else:
@@ -120,10 +120,10 @@ class TuneBase(pl.LightningModule):
 
         # concatenate edge_sample and its flip i.e. [1,2] + [2,1]
         edge_sample = torch.cat([edge_sample, edge_sample.flip(0)], dim=-1)
-        
+
         # as edge_sample is now twice its original size, repeat turth_sample twice as well
         truth_sample = truth_sample.repeat(2)
-        
+
         # if we need directed graph, set directed=True in the config
         if ("directed" in self.hparams.keys()) and self.hparams["directed"]:
             direction_mask = batch.x[edge_sample[0], 0] < batch.x[edge_sample[1], 0]
@@ -137,9 +137,7 @@ class TuneBase(pl.LightningModule):
 
         edge_positive = preds.sum().float()
         edge_true = truth.sum().float()
-        edge_true_positive = (
-            (truth.bool() & preds).sum().float()
-        )
+        edge_true_positive = (truth.bool() & preds).sum().float()
 
         eff = edge_true_positive.clone().detach() / max(1, edge_true)
         pur = edge_true_positive.clone().detach() / max(1, edge_positive)
@@ -155,7 +153,11 @@ class TuneBase(pl.LightningModule):
                 "eff": eff,
                 "pur": pur,
                 "current_lr": current_lr,
-            }, on_step=False, on_epoch=True, prog_bar=False, batch_size=10240
+            },
+            on_step=False,
+            on_epoch=True,
+            prog_bar=False,
+            batch_size=10240,
         )
 
     # Train Step
@@ -183,11 +185,18 @@ class TuneBase(pl.LightningModule):
         loss = F.binary_cross_entropy_with_logits(
             output, truth_sample.float(), weight=manual_weights, pos_weight=weight
         )
-        
-        self.log("train_loss", loss, on_step=False, on_epoch=True, prog_bar=True, batch_size=10240)
-      
+
+        self.log(
+            "train_loss",
+            loss,
+            on_step=False,
+            on_epoch=True,
+            prog_bar=True,
+            batch_size=10240,
+        )
+
         return loss
-        
+
     # Shared Evaluation for Validation and Test Steps
     def shared_evaluation(self, batch, batch_idx, log=False):
 
@@ -209,7 +218,7 @@ class TuneBase(pl.LightningModule):
             manual_weights = batch.weights
         else:
             manual_weights = None
-        
+
         # BCE Loss
         loss = F.binary_cross_entropy_with_logits(
             output, truth_sample.float(), weight=manual_weights, pos_weight=weight
@@ -219,35 +228,41 @@ class TuneBase(pl.LightningModule):
         score = torch.sigmoid(output)
         preds = score > self.hparams["edge_cut"]
         acc = self.valid_acc(score, truth_sample)
-        
+
         if log:
             self.log_metrics(score, preds, truth_sample, batch, loss)
 
-        return {"loss": loss, "acc": acc, "score": score, "preds": preds, "truth": truth_sample}
-    
+        return {
+            "loss": loss,
+            "acc": acc,
+            "score": score,
+            "preds": preds,
+            "truth": truth_sample,
+        }
+
     # Validation Step
     def validation_step(self, batch, batch_idx):
         outputs = self.shared_evaluation(batch, batch_idx, log=True)
         return outputs
-    
+
     # Validation Epoch (Ray Tuner)
     def validation_epoch_end(self, validation_step_outputs):
         # do something with all validation_step outputs
-        
+
         # for out in validation_step_outputs:
         #   print(out["loss"].item(), out["acc"].item())
-        
+
         # Accuracy from Score and Truth
-        avg_acc = torch.stack([self.valid_acc(x["score"], x["truth"])
-                               for x in validation_step_outputs
-                               ]).mean()
-        
-        # avg_acc  = torch.stack([x["acc"]  for x in validation_step_outputs]).mean()                        
+        avg_acc = torch.stack(
+            [self.valid_acc(x["score"], x["truth"]) for x in validation_step_outputs]
+        ).mean()
+
+        # avg_acc  = torch.stack([x["acc"]  for x in validation_step_outputs]).mean()
         avg_loss = torch.stack([x["loss"] for x in validation_step_outputs]).mean()
-        
+
         self.log("ptl/val_loss", avg_loss)
-        self.log("ptl/val_accuracy", avg_acc)    
-    
+        self.log("ptl/val_accuracy", avg_acc)
+
     # Test Step
     def test_step(self, batch, batch_idx):
         outputs = self.shared_evaluation(batch, batch_idx, log=False)
@@ -255,19 +270,20 @@ class TuneBase(pl.LightningModule):
 
     # Optimizer Step
     def optimizer_step(
-            self,
-            epoch,
-            batch_idx,
-            optimizer,
-            optimizer_idx=0,  # ADAK: optimizer_idx to optimizer_idx=0
-            optimizer_closure=None,
-            on_tpu=False,
-            using_native_amp=False,
-            using_lbfgs=False,
+        self,
+        epoch,
+        batch_idx,
+        optimizer,
+        optimizer_idx=0,  # ADAK: optimizer_idx to optimizer_idx=0
+        optimizer_closure=None,
+        on_tpu=False,
+        using_native_amp=False,
+        using_lbfgs=False,
     ):
         # warm up lr
         if (self.hparams["warmup"] is not None) and (
-            self.trainer.current_epoch < self.hparams["warmup"]  # ADAK: global_step > current_epoch
+            self.trainer.current_epoch
+            < self.hparams["warmup"]  # ADAK: global_step > current_epoch
         ):
             lr_scale = min(
                 1.0, float(self.trainer.current_epoch + 1) / self.hparams["warmup"]

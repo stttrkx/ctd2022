@@ -15,6 +15,7 @@ from ..utils import make_mlp
 
 # Graph Convolution Network (GCN) by T. Kipf [arXiv:1609.02907]
 
+
 class VanillaGCN(GNNBase):
     def __init__(self, hparams):
         super().__init__(hparams)
@@ -23,14 +24,14 @@ class VanillaGCN(GNNBase):
         Thomas Kipf in his paper [arXiv:1609.02907]. It is tested for the sake
         of particle track reconstruction by the Exa.TrkX collaboration.
         """
-        
+
         hparams["output_activation"] = (
             None if "output_activation" not in hparams else hparams["output_activation"]
         )
         hparams["batchnorm"] = (
             False if "batchnorm" not in hparams else hparams["batchnorm"]
         )
-        
+
         # Setup input network
         self.node_encoder = make_mlp(
             hparams["spatial_channels"] + hparams["cell_channels"],
@@ -73,16 +74,13 @@ class VanillaGCN(GNNBase):
             # messages = scatter_add(
             #    x[start], end, dim=0, dim_size=x.shape[0]
             # ) + scatter_add(x[end], start, dim=0, dim_size=x.shape[0])
-            
+
             # Message-passing (aggregation) for bidirectional edges.
             # New aggregation fixed for new GNNBase when directed=False.
-            messages = scatter_add(
-                x[start], end, dim=0, dim_size=x.shape[0]
-            )
-            
+            messages = scatter_add(x[start], end, dim=0, dim_size=x.shape[0])
+
             node_inputs = torch.cat([x, messages], dim=-1)
             x = self.node_network(node_inputs)
 
         edge_inputs = torch.cat([x[start], x[end]], dim=1)
         return self.edge_network(edge_inputs)
-

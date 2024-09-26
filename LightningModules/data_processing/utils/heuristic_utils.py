@@ -11,7 +11,7 @@ import pandas as pd
 import torch
 
 # Device
-device = 'cuda' if torch.cuda.is_available() else 'cpu'
+device = "cuda" if torch.cuda.is_available() else "cpu"
 
 
 # Create an edge between every hit pair
@@ -42,7 +42,7 @@ def get_all_edges(hits):
 def construct_layerwise_edges(hits, filtering=True):
     """
     Construct input edges (graph) in adjacent layers & sectors of the detector.
-    
+
     Parameters
     ----------
     hits : pd.DataFrame
@@ -58,8 +58,8 @@ def construct_layerwise_edges(hits, filtering=True):
 
     # layerwise construction
     layerwise_edges = []
-    layer_groups = hits.groupby('layer_id')
-    for (l1, l2) in layer_pairs:
+    layer_groups = hits.groupby("layer_id")
+    for l1, l2 in layer_pairs:
 
         # get l1, l2 layer groups
         try:
@@ -68,20 +68,24 @@ def construct_layerwise_edges(hits, filtering=True):
         # If an event has no hits on a layer, we get a KeyError.
         # In that case we just skip to the next layer pair.
         except KeyError as e:
-            logging.info('skipping empty layer: %s' % e)
+            logging.info("skipping empty layer: %s" % e)
             continue
 
         # get all possible pairs of hits
-        keys = ['event_id', 'r', 'phi', 'isochrone', 'sector_id']
-        hit_pairs = lg1[keys].reset_index().merge(lg2[keys].reset_index(), on='event_id', suffixes=('_1', '_2'))
+        keys = ["event_id", "r", "phi", "isochrone", "sector_id"]
+        hit_pairs = (
+            lg1[keys]
+            .reset_index()
+            .merge(lg2[keys].reset_index(), on="event_id", suffixes=("_1", "_2"))
+        )
 
         # construct edges with/without sector constraint
         if filtering:
-            dSector = (hit_pairs['sector_id_1'] - hit_pairs['sector_id_2'])
-            sector_mask = ((dSector.abs() < 2) | (dSector.abs() == 5))
-            segments = hit_pairs[['index_1', 'index_2']][sector_mask]
+            dSector = hit_pairs["sector_id_1"] - hit_pairs["sector_id_2"]
+            sector_mask = (dSector.abs() < 2) | (dSector.abs() == 5)
+            segments = hit_pairs[["index_1", "index_2"]][sector_mask]
         else:
-            segments = hit_pairs[['index_1', 'index_2']]
+            segments = hit_pairs[["index_1", "index_2"]]
 
         # append edge list
         layerwise_edges.append(segments)
@@ -104,22 +108,28 @@ def construct_samelayer_edges(hits, directional=True):
 
     # construct samelayer edges
     samelayer_edges = []
-    layer_groups = hits.groupby('layer_id')
+    layer_groups = hits.groupby("layer_id")
     for _, lg in layer_groups:
         if len(lg) > 1:
 
             # same keys as above
-            keys = ['event_id', 'r', 'phi', 'isochrone', 'sector_id']
-            pairs = lg[keys].reset_index().merge(lg[keys].reset_index(), on='event_id', suffixes=('_1', '_2'))
+            keys = ["event_id", "r", "phi", "isochrone", "sector_id"]
+            pairs = (
+                lg[keys]
+                .reset_index()
+                .merge(lg[keys].reset_index(), on="event_id", suffixes=("_1", "_2"))
+            )
 
             # Remove self-loops
             if directional:
-                pairs = pairs[pairs['index_1'] < pairs['index_2']]  # directional edge
+                pairs = pairs[pairs["index_1"] < pairs["index_2"]]  # directional edge
             else:
-                pairs = pairs[pairs['index_1'] != pairs['index_2']]  # bidirectional edge
+                pairs = pairs[
+                    pairs["index_1"] != pairs["index_2"]
+                ]  # bidirectional edge
 
             # Collect pairs for edges
-            samelayer_edges.append(pairs[['index_1', 'index_2']])
+            samelayer_edges.append(pairs[["index_1", "index_2"]])
 
     return samelayer_edges
 
@@ -158,9 +168,8 @@ def get_layerwise_graph(hits, filtering=True, inneredges=True, directional=True)
 
 # Graph Intersection to build Labelled Dataset ([edge_index, y])
 def graph_intersection(pred_graph, truth_graph):
-
     """Graph Intersection to build Labelled Dataset ([edge_index, y])
-    
+
     Parameters
     ----------
     pred_graph : torch.tensor or numpy.array
@@ -185,8 +194,12 @@ def graph_intersection(pred_graph, truth_graph):
         l2 = truth_graph
 
     # create sparse matrices
-    e_1 = sp.sparse.coo_matrix((np.ones(l1.shape[1]), l1), shape=(array_size, array_size)).tocsr()
-    e_2 = sp.sparse.coo_matrix((np.ones(l2.shape[1]), l2), shape=(array_size, array_size)).tocsr()
+    e_1 = sp.sparse.coo_matrix(
+        (np.ones(l1.shape[1]), l1), shape=(array_size, array_size)
+    ).tocsr()
+    e_2 = sp.sparse.coo_matrix(
+        (np.ones(l2.shape[1]), l2), shape=(array_size, array_size)
+    ).tocsr()
 
     # delete temporary variables
     del l1
@@ -200,7 +213,11 @@ def graph_intersection(pred_graph, truth_graph):
     del e_2
 
     # create labelled dataset PyG: [edge_index, y]
-    new_pred_graph = (torch.from_numpy(np.vstack([e_intersection.row, e_intersection.col])).long().to(device))
+    new_pred_graph = (
+        torch.from_numpy(np.vstack([e_intersection.row, e_intersection.col]))
+        .long()
+        .to(device)
+    )
     y = torch.from_numpy(e_intersection.data > 0).to(device)
 
     # delete temporary variables

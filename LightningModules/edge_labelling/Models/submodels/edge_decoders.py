@@ -45,19 +45,23 @@ class HeteroDecoder(torch.nn.Module):
 
         self.hparams = hparams
 
-        self.all_combos = torch.combinations(torch.arange(len(self.hparams["model_ids"])), r=2, with_replacement=True)
+        self.all_combos = torch.combinations(
+            torch.arange(len(self.hparams["model_ids"])), r=2, with_replacement=True
+        )
 
-        self.edge_decoders = nn.ModuleList([
-            make_mlp(
-                3 * hparams["hidden"],
-                [hparams["hidden"]] * hparams["nb_edge_layer"] + [1],
-                layer_norm=hparams["layernorm"],
-                batch_norm=hparams["batchnorm"],
-                output_activation=None,
-                hidden_activation=hparams["hidden_activation"],
-            )
-            for _ in self.all_combos
-        ])
+        self.edge_decoders = nn.ModuleList(
+            [
+                make_mlp(
+                    3 * hparams["hidden"],
+                    [hparams["hidden"]] * hparams["nb_edge_layer"] + [1],
+                    layer_norm=hparams["layernorm"],
+                    batch_norm=hparams["batchnorm"],
+                    output_activation=None,
+                    hidden_activation=hparams["hidden_activation"],
+                )
+                for _ in self.all_combos
+            ]
+        )
 
     def forward(self, x, edge_index, e, volume_id=None):
         """
@@ -68,24 +72,34 @@ class HeteroDecoder(torch.nn.Module):
 
         return self.fill_hetero_edges(e, x, start, end, volume_id)
 
-    def fill_hetero_edges(self, input_edge_features, input_node_features, start, end, volume_id):
+    def fill_hetero_edges(
+        self, input_edge_features, input_node_features, start, end, volume_id
+    ):
         """
         Fill the heterogeneous edges with the corresponding encoders
         """
         features_to_fill = torch.empty((start.shape[0], 1)).to(start.device)
 
         for decoder, combo in zip(self.edge_decoders, self.all_combos):
-            vol_ids_0, vol_ids_1 = torch.tensor(self.hparams["model_ids"][combo[0]]["volume_ids"],
-                                                device=features_to_fill.device),\
-                torch.tensor(self.hparams["model_ids"][combo[1]]["volume_ids"],
-                             device=features_to_fill.device)
-            vol_edge_mask = torch.isin(volume_id[start], vol_ids_0) & torch.isin(volume_id[end], vol_ids_1)
+            vol_ids_0, vol_ids_1 = torch.tensor(
+                self.hparams["model_ids"][combo[0]]["volume_ids"],
+                device=features_to_fill.device,
+            ), torch.tensor(
+                self.hparams["model_ids"][combo[1]]["volume_ids"],
+                device=features_to_fill.device,
+            )
+            vol_edge_mask = torch.isin(volume_id[start], vol_ids_0) & torch.isin(
+                volume_id[end], vol_ids_1
+            )
 
-            features_to_decode = torch.cat([
+            features_to_decode = torch.cat(
+                [
                     input_node_features[start[vol_edge_mask]],
                     input_node_features[end[vol_edge_mask]],
-                    input_edge_features[vol_edge_mask]
-                ], dim=-1)
+                    input_edge_features[vol_edge_mask],
+                ],
+                dim=-1,
+            )
 
             features_to_fill[vol_edge_mask] = decoder(features_to_decode)
 

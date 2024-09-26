@@ -9,6 +9,6 @@ import scipy.sparse as sps
 import scipy.sparse.csgraph as scigraph
 from torch_geometric.utils import to_scipy_sparse_matrix
 
-device = 'cuda' if torch.cuda.is_available() else 'cpu'
+device = "cuda" if torch.cuda.is_available() else "cpu"
 
 # TODO: Combine CCL + Wrangler/Walthrough.

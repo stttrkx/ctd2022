@@ -16,7 +16,6 @@ from .tracking_utils import get_tracking_metrics
 
 
 class GNNTrackingTelemetry(Callback):
-
     """
     This callback contains standardised tests of the performance of a GNN
     """
@@ -34,7 +33,6 @@ class GNNTrackingTelemetry(Callback):
         # Process particles and truth and merge, trim particles by provided selection config file
 
     def on_validation_start(self, trainer, pl_module):
-
         """
         This hook is automatically called when the model is tested after training. The best checkpoint is automatically loaded
         """
@@ -45,7 +43,6 @@ class GNNTrackingTelemetry(Callback):
     def on_validation_batch_end(
         self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx
     ):
-
         """
         Get the relevant outputs from each batch
         """
@@ -54,7 +51,6 @@ class GNNTrackingTelemetry(Callback):
         self.truth.append(outputs["truth"])
 
     def on_validation_epoch_end(self, trainer, pl_module):
-
         """
         1. Aggregate all outputs,
         2. Calculate the ROC curve,

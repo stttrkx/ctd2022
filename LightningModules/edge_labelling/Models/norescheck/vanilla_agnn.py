@@ -9,20 +9,21 @@ from ..utils.gnn_utils import make_mlp
 
 # Attention GNN (AGNN) by P. Veličković [arXiv:1710.10903]
 
+
 class VanillaAGNN(GNNBase):
     def __init__(self, hparams):
         super().__init__(hparams)
-        
+
         """
         The model `VanillaAGNN` is the attention model without a residual aka `skip` 
         connection. It is the new implimentation of `GNNSegmentClassifier` model that
         was developed by Steven S. Farrell and presented in the CTD 2018 conference.
         """
-        
+
         hparams["output_activation"] = (
             None if "output_activation" not in hparams else hparams["output_activation"]
         )
-        
+
         hparams["batchnorm"] = (
             False if "batchnorm" not in hparams else hparams["batchnorm"]
         )
@@ -58,7 +59,7 @@ class VanillaAGNN(GNNBase):
         )
 
     def forward(self, x, edge_index):
-        
+
         # senders, receivers
         start, end = edge_index
 
@@ -80,17 +81,20 @@ class VanillaAGNN(GNNBase):
             # ) + scatter_add (
             #    e * x[end], start, dim=0, dim_size=x.shape[0]
             # )
-            
+
             # Message-passing (aggregation) for bidirectional edges.
             # New aggregation fixed for new GNNBase when directed=False.
             messages = scatter_add(
                 # e[:, None] * x[start], end, dim=0, dim_size=x.shape[0]
-                e * x[start], end, dim=0, dim_size=x.shape[0]
+                e * x[start],
+                end,
+                dim=0,
+                dim_size=x.shape[0],
             )
-            
+
             # Apply node network
             node_inputs = torch.cat([messages, x], dim=1)
             x = self.node_network(node_inputs)
-            
+
         edge_inputs = torch.cat([x[start], x[end]], dim=1)
         return self.edge_network(edge_inputs)

@@ -47,7 +47,9 @@ class EmbeddingBase(LightningModule):
     def train_dataloader(self):
         if self.trainset is not None:
             return DataLoader(
-                self.trainset, batch_size=1, num_workers=self.n_workers
+                self.trainset,
+                batch_size=1,
+                num_workers=self.n_workers,
                 # , pin_memory=True, persistent_workers=True
             )
         else:
@@ -56,7 +58,9 @@ class EmbeddingBase(LightningModule):
     def val_dataloader(self):
         if self.valset is not None:
             return DataLoader(
-                self.valset, batch_size=1, num_workers=self.n_workers
+                self.valset,
+                batch_size=1,
+                num_workers=self.n_workers,
                 # , pin_memory=True, persistent_workers=True
             )
         else:
@@ -65,7 +69,9 @@ class EmbeddingBase(LightningModule):
     def test_dataloader(self):
         if self.testset is not None:
             return DataLoader(
-                self.testset, batch_size=1, num_workers=self.n_workers
+                self.testset,
+                batch_size=1,
+                num_workers=self.n_workers,
                 # , pin_memory=True, persistent_workers=True
             )
         else:

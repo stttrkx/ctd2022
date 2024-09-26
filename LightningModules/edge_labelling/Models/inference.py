@@ -16,7 +16,6 @@ import matplotlib.pyplot as plt
 
 # GNNTelemetry Callback
 class GNNTelemetry(Callback):
-
     """
     This callback contains standardised tests of the performance of a GNN
     """
@@ -27,7 +26,6 @@ class GNNTelemetry(Callback):
         logging.info("Constructing GNNTelemetry Callback!")
 
     def on_test_start(self, trainer, pl_module):
-
         """This hook is automatically called when the model is tested
         after training. The best checkpoint is automatically loaded"""
 
@@ -39,14 +37,12 @@ class GNNTelemetry(Callback):
     def on_test_batch_end(
         self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx
     ):
-
         """Get the relevant outputs from each batch"""
 
         self.preds.append(outputs["score"].cpu())  # ADAK: preds to score
         self.truth.append(outputs["truth"].cpu())
 
     def on_test_end(self, trainer, pl_module):
-
         """
         1. Aggregate all outputs,
         2. Calculate the ROC curve,
@@ -89,7 +85,7 @@ class GNNTelemetry(Callback):
     def make_plot(self, x_val, y_val, x_lab, y_lab, title):
 
         # Update this to dynamically adapt to number of metrics
-        fig, axs = plt.subplots(nrows=1, ncols=1, figsize=(10,8))
+        fig, axs = plt.subplots(nrows=1, ncols=1, figsize=(10, 8))
         axs = axs.flatten() if type(axs) is list else [axs]
 
         axs[0].plot(x_val, y_val)
@@ -139,11 +135,12 @@ class GNNTelemetry(Callback):
             fig.savefig(os.path.join(output_dir, f"metrics_{metric}.pdf"), format="pdf")
 
 
-# ADAK: To get the output files as integers change batch.event_file[-4:] to str(int(batch.event_file[-4:])). 
+# ADAK: To get the output files as integers change batch.event_file[-4:] to str(int(batch.event_file[-4:])).
 # Note that the one needs string type for torch.save(), so from 'str' to 'int' followed by 'str'. The event_file
-# is of the format e.g. path/to/event0000000001, so event_file[-10:] will return 0000000001 (last 10 str) and 
+# is of the format e.g. path/to/event0000000001, so event_file[-10:] will return 0000000001 (last 10 str) and
 # event_file[-4:] will return 0001 (last 4 str). We are not expecting more than 9999 event in testset. The trainset
 # and valset are rebuild with GNNBuilder but not needed as both are redundant w.r.t data from Processing.
+
 
 # GNNBuilder Callback
 class GNNBuilder(Callback):
@@ -181,7 +178,11 @@ class GNNBuilder(Callback):
                     if (
                         not os.path.exists(
                             os.path.join(
-                                self.output_dir, datatype, str(int(batch.event_file[-10:]))  # ADAK [:] to str(int([:]))
+                                self.output_dir,
+                                datatype,
+                                str(
+                                    int(batch.event_file[-10:])
+                                ),  # ADAK [:] to str(int([:]))
                             )
                         )
                     ) or self.overwrite:
@@ -231,7 +232,8 @@ class GNNBuilder(Callback):
     def save_downstream(self, batch, pl_module, datatype):
 
         with open(
-            os.path.join(self.output_dir, datatype, str(int(batch.event_file[-10:]))), "wb"  # ADAK [:] to str(int([:]))
+            os.path.join(self.output_dir, datatype, str(int(batch.event_file[-10:]))),
+            "wb",  # ADAK [:] to str(int([:]))
         ) as pickle_file:
             torch.save(batch, pickle_file)
 

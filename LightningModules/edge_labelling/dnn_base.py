@@ -98,7 +98,7 @@ class DNNBase(pl.LightningModule):
 
         if self.hparams["cell_channels"] > 0:
             input_data = torch.cat(
-                [batch.cell_data[:, :self.hparams["cell_channels"]], batch.x], dim=-1
+                [batch.cell_data[:, : self.hparams["cell_channels"]], batch.x], dim=-1
             )
             input_data[input_data != input_data] = 0
         else:
@@ -125,9 +125,7 @@ class DNNBase(pl.LightningModule):
 
         edge_positive = preds.sum().float()
         edge_true = truth.sum().float()
-        edge_true_positive = (
-            (truth.bool() & preds).sum().float()
-        )
+        edge_true_positive = (truth.bool() & preds).sum().float()
 
         eff = edge_true_positive.clone().detach() / max(1, edge_true)
         pur = edge_true_positive.clone().detach() / max(1, edge_positive)
@@ -143,7 +141,11 @@ class DNNBase(pl.LightningModule):
                 "eff": eff,
                 "pur": pur,
                 "current_lr": current_lr,
-            }, on_step=False, on_epoch=True, prog_bar=False, batch_size=10240
+            },
+            on_step=False,
+            on_epoch=True,
+            prog_bar=False,
+            batch_size=10240,
         )
 
     # Train Step
@@ -172,7 +174,14 @@ class DNNBase(pl.LightningModule):
             output, truth_sample.float(), weight=manual_weights, pos_weight=weight
         )
 
-        self.log("train_loss", loss, on_step=False, on_epoch=True, prog_bar=False, batch_size=10240)
+        self.log(
+            "train_loss",
+            loss,
+            on_step=False,
+            on_epoch=True,
+            prog_bar=False,
+            batch_size=10240,
+        )
 
         return loss
 
@@ -227,19 +236,20 @@ class DNNBase(pl.LightningModule):
 
     # Optimizer Step
     def optimizer_step(
-            self,
-            epoch,
-            batch_idx,
-            optimizer,
-            optimizer_idx=0,  # ADAK: optimizer_idx to optimizer_idx=0
-            optimizer_closure=None,
-            on_tpu=False,
-            using_native_amp=False,
-            using_lbfgs=False,
+        self,
+        epoch,
+        batch_idx,
+        optimizer,
+        optimizer_idx=0,  # ADAK: optimizer_idx to optimizer_idx=0
+        optimizer_closure=None,
+        on_tpu=False,
+        using_native_amp=False,
+        using_lbfgs=False,
     ):
         # warm up lr
         if (self.hparams["warmup"] is not None) and (
-            self.trainer.current_epoch < self.hparams["warmup"]  # ADAK: global_step > current_epoch
+            self.trainer.current_epoch
+            < self.hparams["warmup"]  # ADAK: global_step > current_epoch
         ):
             lr_scale = min(
                 1.0, float(self.trainer.current_epoch + 1) / self.hparams["warmup"]

@@ -8,6 +8,7 @@ import torch
 import torch.nn as nn
 from tqdm import tqdm
 from torch_geometric.data import Dataset
+
 # from idlelib.pyshell import root
 
 # Find current device.
@@ -20,14 +21,14 @@ if device == "cuda":
 
 # ---------------------------- Dataset Processing -------------------------
 def load_dataset(
-        input_subdir="",
-        num_events=10,
-        pt_background_cut=0,
-        pt_signal_cut=0,
-        noise=False,
-        triplets=False,
-        input_cut=None,
-        **kwargs
+    input_subdir="",
+    num_events=10,
+    pt_background_cut=0,
+    pt_signal_cut=0,
+    noise=False,
+    triplets=False,
+    input_cut=None,
+    **kwargs,
 ):
     if input_subdir is not None:
         all_events = os.listdir(input_subdir)
@@ -73,10 +74,13 @@ def process_data(events, pt_background_cut, pt_signal_cut, noise, triplets, inpu
     for i, event in tqdm(enumerate(events)):
 
         # Ensure PID definition is correct
-        event.y_pid = (event.pid[event.edge_index[0]] == event.pid[event.edge_index[1]]) &\
-                      event.pid[event.edge_index[0]].bool()
+        event.y_pid = (
+            event.pid[event.edge_index[0]] == event.pid[event.edge_index[1]]
+        ) & event.pid[event.edge_index[0]].bool()
 
-        event.pid_signal = torch.isin(event.edge_index, event.signal_true_edges).all(0) & event.y_pid
+        event.pid_signal = (
+            torch.isin(event.edge_index, event.signal_true_edges).all(0) & event.y_pid
+        )
 
         if (input_cut is not None) and "scores" in event.keys:
             score_mask = event.scores > input_cut
@@ -87,8 +91,11 @@ def process_data(events, pt_background_cut, pt_signal_cut, noise, triplets, inpu
 
 
 def background_cut_event(event, pt_background_cut=0, pt_signal_cut=0):
-    edge_mask = ((event.pt[event.edge_index] > pt_background_cut) & (
-                event.pid[event.edge_index] == event.pid[event.edge_index]) & (event.pid[event.edge_index] != 0)).any(0)
+    edge_mask = (
+        (event.pt[event.edge_index] > pt_background_cut)
+        & (event.pid[event.edge_index] == event.pid[event.edge_index])
+        & (event.pid[event.edge_index] != 0)
+    ).any(0)
     event.edge_index = event.edge_index[:, edge_mask]
     event.y = event.y[edge_mask]
 
@@ -100,19 +107,26 @@ def background_cut_event(event, pt_background_cut=0, pt_signal_cut=0):
             event.weights = event.weights[edge_mask]
 
     if (
-            "signal_true_edges" in event.__dict__.keys()
-            and event.signal_true_edges is not None
+        "signal_true_edges" in event.__dict__.keys()
+        and event.signal_true_edges is not None
     ):
-        signal_mask = (
-                event.pt[event.signal_true_edges] > pt_signal_cut
-        ).all(0)
+        signal_mask = (event.pt[event.signal_true_edges] > pt_signal_cut).all(0)
         event.signal_true_edges = event.signal_true_edges[:, signal_mask]
 
     return event
 
 
 class LargeDataset(Dataset):
-    def __init__(self, rootdir, subdir, num_events, hparams, transform=None, pre_transform=None, pre_filter=None):
+    def __init__(
+        self,
+        rootdir,
+        subdir,
+        num_events,
+        hparams,
+        transform=None,
+        pre_transform=None,
+        pre_filter=None,
+    ):
         super().__init__(rootdir, transform, pre_transform, pre_filter)
 
         self.subdir = subdir
@@ -124,7 +138,9 @@ class LargeDataset(Dataset):
         else:
             random.shuffle(self.input_paths)
 
-        self.input_paths = [os.path.join(rootdir, subdir, event) for event in self.input_paths][:num_events]
+        self.input_paths = [
+            os.path.join(rootdir, subdir, event) for event in self.input_paths
+        ][:num_events]
 
     def len(self):
         return len(self.input_paths)
@@ -134,12 +150,17 @@ class LargeDataset(Dataset):
 
         # Process event with pt cuts
         if self.hparams["pt_background_cut"] > 0:
-            event = background_cut_event(event, self.hparams["pt_background_cut"], self.hparams["pt_signal_cut"])
+            event = background_cut_event(
+                event, self.hparams["pt_background_cut"], self.hparams["pt_signal_cut"]
+            )
 
         # Ensure PID definition is correct
-        event.y_pid = (event.pid[event.edge_index[0]] == event.pid[event.edge_index[1]]) & event.pid[
-            event.edge_index[0]].bool()
-        event.pid_signal = torch.isin(event.edge_index, event.signal_true_edges).all(0) & event.y_pid
+        event.y_pid = (
+            event.pid[event.edge_index[0]] == event.pid[event.edge_index[1]]
+        ) & event.pid[event.edge_index[0]].bool()
+        event.pid_signal = (
+            torch.isin(event.edge_index, event.signal_true_edges).all(0) & event.y_pid
+        )
 
         # if ("delta_eta" in self.hparams.keys()) and
         # ((self.subdir == "train") or
@@ -150,7 +171,11 @@ class LargeDataset(Dataset):
                 if edge_attr in event.keys:
                     event[edge_attr] = event[edge_attr][..., eta_mask]
 
-        if ("input_cut" in self.hparams.keys()) and (self.hparams["input_cut"] is not None) and "scores" in event.keys:
+        if (
+            ("input_cut" in self.hparams.keys())
+            and (self.hparams["input_cut"] is not None)
+            and "scores" in event.keys
+        ):
             score_mask = event.scores > self.hparams["input_cut"]
             for edge_attr in ["edge_index", "y", "y_pid", "pid_signal", "scores"]:
                 if edge_attr in event.keys:
@@ -227,11 +252,11 @@ def build_triplets(graph, edge_cut=0.5, directed=True):
         ).int()
         directed_triplet_edges = directed_map[undirected_triplet_edges.long()].long()
         directed_triplet_edges = directed_triplet_edges[
-                                 :, directed_triplet_edges[0] != directed_triplet_edges[1]
-                                 ]  # Remove self-loops
+            :, directed_triplet_edges[0] != directed_triplet_edges[1]
+        ]  # Remove self-loops
         directed_triplet_edges = directed_triplet_edges[
-                                 :, directed_triplet_edges[0] < directed_triplet_edges[1]
-                                 ]  # Remove duplicate edges
+            :, directed_triplet_edges[0] < directed_triplet_edges[1]
+        ]  # Remove duplicate edges
 
         return (
             directed_triplet_edges,
@@ -270,10 +295,11 @@ def purity_sample(truth, edges, target_purity):
 
     # Combine
     edge_indices = torch.cat([true_edges, fake_edges_sample])
-    combined_truth = torch.cat([torch.ones(len(true_edges)),
-                                torch.zeros(len(fake_edges_sample))]).to(edge_indices.device)
+    combined_truth = torch.cat(
+        [torch.ones(len(true_edges)), torch.zeros(len(fake_edges_sample))]
+    ).to(edge_indices.device)
 
-    # Mix together   
+    # Mix together
     random_perm = torch.randperm(len(edge_indices))
     edge_indices = edge_indices[random_perm]
     permuted_edges = edges[:, edge_indices]
@@ -394,7 +420,7 @@ def hard_eta_edge_slice(delta_eta, batch):
 
     e_average = (etas[e[0]] + etas[e[1]]) / 2
     dif = abs(e_average - random_eta)
-    subset_edges_ind = (dif < delta_eta)
+    subset_edges_ind = dif < delta_eta
 
     return subset_edges_ind
 
@@ -403,12 +429,12 @@ def hard_eta_edge_slice(delta_eta, batch):
 
 
 def make_mlp(
-        input_size,
-        sizes,
-        hidden_activation="ReLU",
-        output_activation="ReLU",
-        layer_norm=False,
-        batch_norm=False,
+    input_size,
+    sizes,
+    hidden_activation="ReLU",
+    output_activation="ReLU",
+    layer_norm=False,
+    batch_norm=False,
 ):
     """Construct an MLP with specified fully-connected layers."""
     hidden_activation = getattr(nn, hidden_activation)
@@ -423,7 +449,9 @@ def make_mlp(
         if layer_norm:
             layers.append(nn.LayerNorm(sizes[i + 1], elementwise_affine=False))
         if batch_norm:
-            layers.append(nn.BatchNorm1d(sizes[i + 1], track_running_stats=False, affine=False))
+            layers.append(
+                nn.BatchNorm1d(sizes[i + 1], track_running_stats=False, affine=False)
+            )
         layers.append(hidden_activation())
     # Final layer
     layers.append(nn.Linear(sizes[-2], sizes[-1]))
@@ -431,7 +459,9 @@ def make_mlp(
         if layer_norm:
             layers.append(nn.LayerNorm(sizes[-1], elementwise_affine=False))
         if batch_norm:
-            layers.append(nn.BatchNorm1d(sizes[-1], track_running_stats=False, affine=False))
+            layers.append(
+                nn.BatchNorm1d(sizes[-1], track_running_stats=False, affine=False)
+            )
         layers.append(output_activation)
     return nn.Sequential(*layers)
 
