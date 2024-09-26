@@ -12,6 +12,9 @@ Example: See Quickstart for a concrete example of this process.
 Todo: Refactor the training & validation steps, since the use of different regimes (rp, hnm, etc.) looks very messy.
 """
 
+# TODO: MetricBase is exactly the same as EmbeddingBase. I intend to develop it
+# in PyTorch & PyTorch Lightning 2.x, hence I keep it separate from EmbeddingBase.
+
 import os
 import torch
 import logging
@@ -22,11 +25,11 @@ from .utils.embedding_utils import graph_intersection, split_datasets, build_edg
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
 
-class EmbeddingBase(LightningModule):
+class MetricBase(LightningModule):
     def __init__(self, hparams):
         super().__init__()
         """
-        Initialise the Lightning Module that can scan over different embedding training regimes
+        Init LightningModule that can scan over different embedding training regimes
         """
         # Save hyperparameters
         self.save_hyperparameters(hparams)
