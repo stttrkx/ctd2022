@@ -66,6 +66,7 @@ def split_datasets(
         primary_only,
         true_edges,
         noise,
+        **kwargs
     )
 
     # Split Dataset

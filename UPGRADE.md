@@ -37,3 +37,15 @@ The output directories can be fixed in config files to reflect the name of each 
 
 
 **NOTE**: _**edge labelling**_ or _**graph labelling**_ stage is infact **_edge classification_** stage of the pipeline.
+
+
+```shell
+try:
+    # release 6+ imports
+    from skim import BaseSkim, CombinedSkim
+    from skim.WGs.ewp import BtoXll
+except (ImportError, ModuleNotFoundError):
+    # release 5 imports
+    from skimExpertFunctions import BaseSkim, CombinedSkim
+    from skim.ewp import BtoXll
+```

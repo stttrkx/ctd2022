@@ -31,7 +31,4 @@ class LayerlessEmbedding(EmbeddingBase):
     def forward(self, x):
 
         x_out = self.network(x)
-        if "norm" in self.hparams["regime"]:
-            return F.normalize(x_out)
-        else:
-            return x_out
+        return F.normalize(x_out)

@@ -4,35 +4,51 @@ output_dir: ${EXATRKX_DATA}/run/graph_construction
 project: MetricStudy
 overwrite: True
 
-# Dataset parameters
+# Dataset
 pt_signal_cut: .0
 pt_background_cut: .0
 train_split: [[8000, 1000, 1000]] # Number of [training, validation, testing] examples
-true_edges: orderwise_true_edges
-noise: False
+true_edges: orderwise_true_edges  # during data loading becomes signal_true_edges
+noise: False                      # never used, why and who handle noise?
 n_workers: 4
 
-# Model parameters
+# Network
 spatial_channels: 3
 cell_channels: 0
 emb_hidden: 1024
 nb_layer: 4
 emb_dim: 12
-weight: 2
 activation: Tanh
-randomisation: 2
-points_per_batch: 100000
+
+# Optimizer
+warmup: 3
+lr: 0.0001
+factor: 0.3
+patience: 10
+
+# Loss Function
+margin: 0.1
+
+# Build Edges using kNN
 r_train: 0.1
 r_val: 0.1
 r_test: 0.1
 knn: 100
-warmup: 3
-margin: 0.1
-lr: 0.0001
-factor: 0.3
-patience: 10
-regime: [[rp, hnm, norm]]
+
+weight: 2                  # used in train_step()
+randomisation: 2           # used in append_random_pairs()
+points_per_batch: 100000   # used in get_query_points()
+regime: [[rp, hnm]]        # used in train_step() to append hnm/random pairs
+
+# Training
 max_epochs: 30
 
 # Postprocessing
 callbacks: [[EmbeddingBuilder]]
+
+
+# regime: currently following options are handled by regime parameter
+# 1. query_all_points, query_noise_points
+# 2. low_purity in append_hnm_pairs()
+# 3. rp, hnm in train_step()
+# 3. norm in forward(), I removed it as use norm always.
