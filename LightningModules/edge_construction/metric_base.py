@@ -19,6 +19,7 @@ import os
 import torch
 import logging
 from typing import Optional, Tuple, List, Dict, Any
+import torch.nn.functional as F
 from pytorch_lightning import LightningModule
 from torch_geometric.loader import DataLoader
 from torch_geometric.data import Data
@@ -44,6 +45,9 @@ class MetricBase(LightningModule):
 
         # Instance Variables
         self.trainset, self.valset, self.testset = None, None, None
+
+        # Loss Function
+        self.hparams["loss_function"] = hparams.get("loss_function", "hinge")
 
     def setup(self, stage: Optional[str] = "fit") -> None:
         self.trainset, self.valset, self.testset = split_datasets(**self.hparams)
@@ -135,6 +139,7 @@ class MetricBase(LightningModule):
     # Helper Functions (1): Get input data
     def get_input_data(self, batch: Any) -> torch.Tensor:
         """Get input data, handling whether Cell Information (ci) is included"""
+
         if self.hparams["cell_channels"] > 0:
             input_data = torch.cat(
                 [batch.cell_data[:, : self.hparams["cell_channels"]], batch.x], dim=-1
@@ -151,6 +156,7 @@ class MetricBase(LightningModule):
         self, batch: Any, spatial: torch.Tensor
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """Get query points based on the regime"""
+
         if "query_all_points" in self.hparams["regime"]:
             query_indices = torch.arange(len(spatial)).to(spatial.device)
         elif "query_noise_points" in self.hparams["regime"]:
@@ -176,6 +182,7 @@ class MetricBase(LightningModule):
         spatial: torch.Tensor,
     ) -> torch.Tensor:
         """Append Hard Negative Mining (hnm) with KNN graph"""
+
         if "low_purity" in self.hparams["regime"]:
             knn_edges = build_edges(
                 query, spatial, query_indices, self.hparams["r_train"], 500
@@ -236,7 +243,27 @@ class MetricBase(LightningModule):
         new_weights: torch.Tensor,
         e_bidir: torch.Tensor,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """Append all positive examples and their truth and weighting"""
+        """
+        Incorporate ground truth edges into the current edge set and update corresponding labels and weights.
+
+        This function ensures that all known true positive edges (ground truth) are included in the edge set
+        used for training. It updates the edge list, labels, and weights to reflect the addition of these
+        known positive examples.
+
+        Args:
+            e_spatial (torch.Tensor): Current edge list, which may include both predicted and some true edges.
+            y_cluster (torch.Tensor): Binary labels for the current edges (1 for positive, 0 for negative).
+            new_weights (torch.Tensor): Current weights assigned to each edge.
+            e_bidir (torch.Tensor): Bidirectional ground truth edges.
+
+        Returns:
+            Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+                - Updated edge list (e_spatial) including all ground truth edges
+                - Updated binary labels (y_cluster) for all edges
+                - Updated weights (new_weights) for all edges
+        """
+        # Append ground truth edges (e_bidir) to the current edge list (e_spatial)
+        # This ensures all known true positive pairs are included in the training process
         e_spatial = torch.cat(
             [
                 e_spatial.to(self.device),
@@ -244,7 +271,16 @@ class MetricBase(LightningModule):
             ],
             dim=-1,
         )
-        y_cluster = torch.cat([y_cluster.int(), torch.ones(e_bidir.shape[1])])
+
+        # Update labels to reflect the addition of ground truth edges
+        # All newly added edges from e_bidir are positive examples, so we append a tensor of ones
+        y_cluster = torch.cat(
+            [y_cluster.int(), torch.ones(e_bidir.shape[1], device=self.device)]
+        )
+
+        # Assign weights to the newly added ground truth edges
+        # We use a predefined weight (self.hparams["weight"]) for these known positive examples
+        # This typically gives more importance to the ground truth edges in the loss calculation
         new_weights = torch.cat(
             [
                 new_weights,
@@ -252,19 +288,41 @@ class MetricBase(LightningModule):
                 * self.hparams["weight"],
             ]
         )
+
         return e_spatial, y_cluster, new_weights
 
     # Helper Functions (6): Calculate hinge distance
     def get_hinge_distance(
         self, spatial: torch.Tensor, e_spatial: torch.Tensor, y_cluster: torch.Tensor
     ) -> Tuple[torch.Tensor, torch.Tensor]:
-        """Calculate hinge distance"""
+        """
+        Calculate hinge distance for edge pairs.
 
+        This function computes the squared Euclidean distance between node pairs in the embedding space
+        and prepares the hinge values for loss calculation.
+
+        Args:
+            spatial (torch.Tensor): Node embeddings output by the MLP. Shape: [num_nodes, embedding_dim]
+            e_spatial (torch.Tensor): Edge list containing pairs of node indices. Shape: [2, num_edges]
+            y_cluster (torch.Tensor): Binary labels for the edges (1 for positive, 0 for negative). Shape: [num_edges]
+
+        Returns:
+            Tuple[torch.Tensor, torch.Tensor]:
+                - hinge: Tensor of -1 and 1 values, where 1 indicates a positive pair and -1 a negative pair
+                - d: Squared Euclidean distances between node pairs in the embedding space
+        """
+
+        # Convert binary labels to -1 and 1 for hinge loss calculation
         hinge = y_cluster.float().to(self.device)
         hinge[hinge == 0] = -1
 
+        # Select embeddings for the first nodes in each edge pair
         reference = spatial.index_select(0, e_spatial[1])
+
+        # Select embeddings for the second nodes in each edge pair
         neighbors = spatial.index_select(0, e_spatial[0])
+
+        # Compute squared Euclidean distance between node pairs in the embedding space
         d = torch.sum((reference - neighbors) ** 2, dim=-1)
 
         return hinge, d
@@ -282,12 +340,13 @@ class MetricBase(LightningModule):
     def training_step(self, batch: Any, batch_idx: int) -> torch.Tensor:
         """Training step"""
 
-        # Instantiate empty prediction edge list
+        # Instantiate empty edge list (edge_index)
         e_spatial = torch.empty([2, 0], dtype=torch.int64, device=self.device)
 
         # Forward pass of model, handling whether Cell Information (ci) is included
         input_data = self.get_input_data(batch)
 
+        # Get embeddings from model
         with torch.no_grad():
             spatial = self(input_data)
 
@@ -317,6 +376,7 @@ class MetricBase(LightningModule):
 
         included_hits = e_spatial.unique()
         spatial[included_hits] = self(input_data[included_hits])
+
         # TODO: Choose between hinge loss, triplet loss, and cosine embedding loss
 
         # Calculate hinge distance
@@ -385,7 +445,7 @@ class MetricBase(LightningModule):
         )
 
         # Calculate hinge loss
-        loss = torch.nn.functional.hinge_embedding_loss(
+        loss = F.hinge_embedding_loss(
             d, hinge, margin=self.hparams["margin"] ** 2, reduction="mean"
         )
 
@@ -443,7 +503,7 @@ class MetricBase(LightningModule):
         return outputs
 
     # Loss Functions: Hinge Loss, Triplet Loss, Cosine Embedding Loss, etc.
-    def get_hinge_loss(
+    def weighted_hinge_loss(
         self,
         spatial: torch.Tensor,
         e_spatial: torch.Tensor,
@@ -482,25 +542,25 @@ class MetricBase(LightningModule):
         new_weights[hinge == -1] = 1
 
         # Calculate the negative loss
-        negative_loss = torch.nn.functional.hinge_embedding_loss(
+        negative_loss = F.hinge_embedding_loss(
             d[hinge == -1],
             hinge[hinge == -1],
-            margin=self.hparams["margin"] ** 2,
+            margin=self.hparams.get("hinge_margin", 1.0) ** 2,
             reduction="mean",
         )
 
         # Calculate the positive loss
-        positive_loss = torch.nn.functional.hinge_embedding_loss(
+        positive_loss = F.hinge_embedding_loss(
             d[hinge == 1],
             hinge[hinge == 1],
-            margin=self.hparams["margin"] ** 2,
+            margin=self.hparams.get("hinge_margin", 1.0) ** 2,
             reduction="mean",
         )
 
         # Calculate and return the total loss
         return negative_loss + self.hparams["weight"] * positive_loss
 
-    def get_triplet_loss(
+    def weighted_triplet_loss(
         self,
         spatial: torch.Tensor,
         e_spatial: torch.Tensor,
@@ -516,40 +576,63 @@ class MetricBase(LightningModule):
 
         Args:
             spatial (torch.Tensor): The spatial embeddings of the points.
-            e_spatial (torch.Tensor): Edge information, containing indices of point triplets.
+            e_spatial (torch.Tensor): Edge information, containing indices of point pairs.
             y_cluster (torch.Tensor): Binary labels for edges (0 for negative, 1 for positive pairs).
-            new_weights (torch.Tensor): Weights for each edge triplet.
+            new_weights (torch.Tensor): Weights for each edge pair.
 
         Returns:
             torch.Tensor: The total triplet loss.
 
         The function performs the following steps:
-        1. Selects anchor, positive, and negative samples from the spatial embedding.
-        2. Calculates distances between anchor-positive and anchor-negative pairs.
-        3. Computes the triplet loss using these distances.
-        4. Applies weights to the loss.
+        1. Selects anchor and neighbor samples from the spatial embedding.
+        2. Determines positive and negative samples based on y_cluster.
+        3. Ensures equal number of positive and negative samples.
+        4. Computes the triplet loss using these samples.
+        5. Applies weights to the loss.
 
-        The margin for the triplet loss is defined by the hyperparameter 'margin'.
+        The margin for the triplet loss is defined by the hyperparameter 'triplet_margin'.
         """
-        # Select anchor, positive, and negative samples
-        anchors = spatial.index_select(0, e_spatial[0])
-        positives = spatial.index_select(0, e_spatial[1])
-        negatives = spatial.index_select(0, e_spatial[2])
 
-        # Calculate distances
-        dist_pos = torch.sum((anchors - positives) ** 2, dim=-1)
-        dist_neg = torch.sum((anchors - negatives) ** 2, dim=-1)
+        # Ensure e_spatial has at least two rows for anchor and neighbor
+        if e_spatial.shape[0] < 2:
+            raise ValueError(
+                "Triplet loss requires e_spatial to have at least 2 rows: anchor and neighbor"
+            )
+
+        anchors = spatial[e_spatial[0]]
+        neighbors = spatial[e_spatial[1]]
+
+        # Determine positive and negative samples based on y_cluster
+        positives = neighbors[y_cluster == 1]
+        negatives = neighbors[y_cluster == 0]
+
+        # Ensure we have equal number of positives and negatives
+        min_samples = min(positives.shape[0], negatives.shape[0])
+        if min_samples == 0:
+            return torch.tensor(
+                0.0, device=self.device
+            )  # No valid triplets in this batch
+
+        anchors = anchors[:min_samples]
+        positives = positives[:min_samples]
+        negatives = negatives[:min_samples]
 
         # Compute triplet loss
-        loss = torch.nn.functional.relu(dist_pos - dist_neg + self.hparams["margin"])
+        loss = F.triplet_margin_loss(
+            anchors,
+            positives,
+            negatives,
+            margin=self.hparams.get("triplet_margin", 1.0),
+            reduction="none",
+        )
 
-        # Apply weights
-        weighted_loss = loss * new_weights
+        # Apply weights (we need to adjust weights to match the reduced sample size)
+        relevant_weights = new_weights[:min_samples]
+        weighted_loss = loss * relevant_weights
 
-        # Return mean loss
         return weighted_loss.mean()
 
-    def get_cosine_embedding_loss(
+    def weighted_cosine_embedding_loss(
         self,
         spatial: torch.Tensor,
         e_spatial: torch.Tensor,
@@ -573,21 +656,18 @@ class MetricBase(LightningModule):
             torch.Tensor: The total weighted cosine embedding loss.
         """
         # Select pairs of points
-        x1 = spatial.index_select(0, e_spatial[0])
-        x2 = spatial.index_select(0, e_spatial[1])
+        x1 = spatial[e_spatial[0]]
+        x2 = spatial[e_spatial[1]]
 
         # Convert binary labels to 1 and -1
         # Cosine embedding loss expects 1 for similar pairs and -1 for dissimilar pairs
         y = 2 * y_cluster.float() - 1
 
         # Compute cosine embedding loss
-        # We use a default margin of 0.5, but this can be adjusted via hyperparameters
         loss = F.cosine_embedding_loss(
             x1, x2, y, margin=self.hparams.get("cosine_margin", 0.5), reduction="none"
         )
 
         # Apply weights
         weighted_loss = loss * new_weights
-
-        # Return mean loss
         return weighted_loss.mean()
