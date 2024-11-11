@@ -63,7 +63,6 @@ def process_mcTracks(event: pd.Series, signal_signatures: list) -> pd.DataFrame:
             pdg_ids=event["pdgcode"],
             particle_id=particle_id,
         )
-        del mother_ids
         # Check if the particle is a signal particle.
         mcTrack_dict["primary"][particle_num] = is_signal_particle(
             process_mc_ids=mc_ids,

@@ -25,8 +25,8 @@ fi
 ann=gnn
 
 # Data Directories
-inputdir="../run_all/fwp_"$ann"_processed/pred"  # input from GNN stage as in test/pred
-outputdir="../run_all/fwp_"$ann"_segmenting/seg" # output of trkx_from_gnn.sh i.e. TrackCands
+inputdir="/home/nikin105/mlProject/data/machineLearning/XiAntiXi/training/baseline/trainingResults/test"  # input from GNN stage as in test/pred
+outputdir="/home/nikin105/mlProject/data/machineLearning/XiAntiXi/track_reconstruction/baseline/track_candidates" # output of trkx_from_gnn.sh i.e. TrackCands
 mkdir -p $outputdir
 
 # original: trkx_from_gnn_v1

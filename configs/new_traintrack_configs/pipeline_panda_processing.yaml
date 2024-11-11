@@ -1,5 +1,5 @@
 # Name of the project
-project          : "XiAntiXi-newGT_oldIG"
+project          : "mum5mup5_test"
 
 # Path to directory containing the model files
 model_library    : "/home/nikin105/mlProject/machineLearning/LightningModules"

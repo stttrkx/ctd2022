@@ -2,10 +2,10 @@
 # Optional fields are marked with a # Optional comment.
 
 # Input directory with the .csv files
-input_dir  : "/home/nikin105/mlProject/data/simulations/mum5mup5/processed/mlData.root"
+input_dir  : "/home/nikin105/mlProject/data/machineLearning/mum5mup5/processing_input/root/new_mlData.root"
 
 # Output directory for the pyTorch geometry files
-output_dir : "/home/nikin105/mlProject/data/machineLearning/mum5mup5/training/newGT_oldIG/processedFiles"
+output_dir : "/home/nikin105/mlProject/data/machineLearning/old_mum5mup5_testing"
 
 # - Parallelization parameters - 
 overwrite : True  # ?
@@ -15,7 +15,7 @@ n_tasks   : 1     # ?
 chunksize : 1     # ?
 
 # - Graph construction method -
-true_edge_method : "timeordered"
+true_edge_method : "layerwise"
 
 input_edge_method : "oldLayerwise" # Method how the input edges are constructed. Options: 'layerwise' and 'all'
 

@@ -18,9 +18,9 @@ fraction=0.5
 ann=gnn
 
 # Data Directories
-raw_inputdir="../run_all/fwp_"$ann"_processed/pred"  # output of GNN stage as in test/pred
-rec_inputdir="../run_all/fwp_"$ann"_segmenting/seg"  # output of trkx_from_gnn.sh
-outputdir="../run_all/fwp_"$ann"_segmenting/eval"    # output of eval_reco_trkx.sh
+raw_inputdir="/home/nikin105/mlProject/data/machineLearning/XiAntiXi/training/baseline/trainingResults/test"  # output of GNN stage as in test/pred
+rec_inputdir="/home/nikin105/mlProject/data/machineLearning/XiAntiXi/track_reconstruction/baseline/track_candidates"  # output of trkx_from_gnn.sh
+outputdir="/home/nikin105/mlProject/data/machineLearning/XiAntiXi/track_reconstruction/baseline/evaluated_tracks"    # output of eval_reco_trkx.sh
 outfile=$outputdir"/$fraction"                   # name prefix of output files
 mkdir -p $outputdir
 

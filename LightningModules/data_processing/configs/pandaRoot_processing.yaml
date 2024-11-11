@@ -8,7 +8,7 @@ input_dir :  "/home/nikin105/mlProject/data/simulations/mum5mup5/root"
 prefix : "new_mum5mup5"
 
 # Output directory for the pyTorch geometry files
-output_dir : "/home/nikin105/mlProject/data/machineLearning/testing"
+output_dir : "/home/nikin105/mlProject/data/machineLearning/mum5mup5_testing"
 
 signal_signature_file : "/home/nikin105/mlProject/visualization/simulationChain/signal_signatures/signal_signature_mum5mup5.yaml"
 

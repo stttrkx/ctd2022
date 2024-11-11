@@ -52,7 +52,7 @@ def get_layerwise_edges(hits):
     hits = hits.sort_values("R").reset_index(drop=True).reset_index(drop=False)
 
     # Handle noise (particle_id == 0)
-    hits.loc[hits["particle_id"] == 0, "particle_id"] = np.nan
+    # hits.loc[hits["particle_id"] == 0, "particle_id"] = np.nan
 
     # Group by particles and layers
     hit_list = (
