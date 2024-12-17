@@ -19,9 +19,11 @@ class CheckResGCN(GNNBase):
         Thomas Kipf in his paper [arXiv:1609.02907]. In includes residual/skip
         connection. It is tested for reconstruction by Exa.TrkX collaboration.
         """
-        
+
         concatenation_factor = (
-            3 if (self.hparams["aggregation"] in ["sum_max", "mean_max", "mean_sum"]) else 2
+            3
+            if (self.hparams["aggregation"] in ["sum_max", "mean_max", "mean_sum"])
+            else 2
         )
         hparams["output_activation"] = (
             None if "output_activation" not in hparams else hparams["output_activation"]
@@ -29,7 +31,7 @@ class CheckResGCN(GNNBase):
         hparams["batchnorm"] = (
             False if "batchnorm" not in hparams else hparams["batchnorm"]
         )
-        
+
         # Setup input network
         self.node_encoder = make_mlp(
             hparams["spatial_channels"] + hparams["cell_channels"],
@@ -52,7 +54,7 @@ class CheckResGCN(GNNBase):
 
         # The node network computes new node features
         self.node_network = make_mlp(
-            concatenation_factor*(hparams["hidden"]),
+            concatenation_factor * (hparams["hidden"]),
             [hparams["hidden"]] * hparams["nb_node_layer"],
             hidden_activation=hparams["hidden_activation"],
             output_activation=hparams["output_activation"],
@@ -61,26 +63,26 @@ class CheckResGCN(GNNBase):
         )
 
     def forward(self, x, edge_index):
-        
+
         # Senders and receivers
         start, end = edge_index
-        
+
         # Apply input network
         x = self.node_encoder(x)
         x = F.softmax(x, dim=-1)
-        
+
         # Loop over iterations of edge and node networks
         for i in range(self.hparams["n_graph_iters"]):
-            
+
             # Residual connection
             x_initial = x
-            
+
             # Message-passing (aggregation) for unidirectional edges.
             # Old aggregation fixed for GNNBase when directed=True.
             # edge_messages = scatter_add(
             #    x[start], end, dim=0, dim_size=x.shape[0]
             # ) + scatter_add(x[end], start, dim=0, dim_size=x.shape[0])
-            
+
             # Message-passing (aggregation) for bidirectional edges.
             # New aggregation fixed for new GNNBase when directed=False.
             # edge_messages = scatter_add(  # sum
@@ -90,13 +92,11 @@ class CheckResGCN(GNNBase):
             # aggregation: sum, mean, max, sum_max, mean_sum, mean_max
             edge_messages = None
             if self.hparams["aggregation"] == "sum":
-                edge_messages = scatter_add(
-                    x[start], end, dim=0, dim_size=x.shape[0]
-                )
+                edge_messages = scatter_add(x[start], end, dim=0, dim_size=x.shape[0])
             elif self.hparams["aggregation"] == "max":
-                edge_messages = scatter_max(
-                    x[start], end, dim=0, dim_size=x.shape[0]
-                )[0]
+                edge_messages = scatter_max(x[start], end, dim=0, dim_size=x.shape[0])[
+                    0
+                ]
             elif self.hparams["aggregation"] == "sum_max":
                 edge_messages = torch.cat(
                     [
@@ -106,9 +106,7 @@ class CheckResGCN(GNNBase):
                     dim=-1,
                 )
             elif self.hparams["aggregation"] == "mean":
-                edge_messages = scatter_mean(
-                    x[start], end, dim=0, dim_size=x.shape[0]
-                )
+                edge_messages = scatter_mean(x[start], end, dim=0, dim_size=x.shape[0])
             elif self.hparams["aggregation"] == "mean_sum":
                 edge_messages = torch.cat(
                     [
@@ -125,12 +123,12 @@ class CheckResGCN(GNNBase):
                     ],
                     dim=-1,
                 )
-            
+
             # Apply node network
             node_inputs = torch.cat([x, edge_messages], dim=-1)
             node_inputs = F.softmax(node_inputs, dim=-1)
             x = checkpoint(self.node_network, node_inputs)
-            
+
             # Residual connection
             x = x + x_initial
 

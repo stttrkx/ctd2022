@@ -1,39 +1,40 @@
+#!/usr/bin/env python
+# coding: utf-8
+
+"""Class-based inference Callback for integration with Lightning"""
+
 import sys
 import os
 import copy
 import logging
-import tracemalloc
-import gc
-from memory_profiler import profile
-
-from pytorch_lightning.callbacks import Callback
-import torch.nn.functional as F
-import sklearn.metrics
-import matplotlib.pyplot as plt
 import torch
 import numpy as np
+from pytorch_lightning.callbacks import Callback
+import matplotlib.pyplot as plt
 
-from ..utils import build_edges, graph_intersection
-
-"""
-Class-based Callback inference for integration with Lightning
-"""
+from ..utils.embedding_utils import build_edges, graph_intersection
 
 
+#  Lighting Callback
 class EmbeddingTelemetry(Callback):
-
-    """
-    This callback contains standardised tests of the performance of a GNN
-    """
+    """This callback contains standardised tests of the performance of a GNN"""
 
     def __init__(self):
         super().__init__()
-        logging.info("Constructing telemetry callback")
+        self.hparams = None
+        self.truth = None
+        self.preds = None
+        self.pt_true = None
+        self.distances = None
+        self.pt_true_pos = None
+        self.truth_graph = None
+
+        logging.info("Constructing EmbeddingTelemetry Callback")
 
     def on_test_start(self, trainer, pl_module):
-
         """
-        This hook is automatically called when the model is tested after training. The best checkpoint is automatically loaded
+        This hook is automatically called when the model is tested
+        after training. The best checkpoint is automatically loaded.
         """
         self.preds = []
         self.truth = []
@@ -47,7 +48,6 @@ class EmbeddingTelemetry(Callback):
     def on_test_batch_end(
         self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx
     ):
-
         """
         Get the relevant outputs from each batch
         """
@@ -65,7 +65,6 @@ class EmbeddingTelemetry(Callback):
         self.truth_graph.append(outputs["truth_graph"].cpu())
 
     def on_test_end(self, trainer, pl_module):
-
         """
         1. Aggregate all outputs,
         2. Calculate the ROC curve,
@@ -74,12 +73,28 @@ class EmbeddingTelemetry(Callback):
         """
 
         metrics = self.calculate_metrics()
-
         metrics_plots = self.plot_metrics(metrics)
-
         self.save_metrics(metrics_plots, pl_module.hparams.output_dir)
 
+    def calculate_metrics(self):
+        """Calculate different metrics."""
+
+        # get transverse momentum metrics
+        centers, ratio_hist = self.get_pt_metrics()
+
+        # get efficiency-purity metrics
+        eff, pur, r_cuts = self.get_eff_pur_metrics()
+
+        metric_dict = {
+            "pt_plot": {"centers": centers, "ratio_hist": ratio_hist},
+            "eff_plot": {"eff": eff, "r_cuts": r_cuts},
+            "pur_plot": {"pur": pur, "r_cuts": r_cuts},
+        }
+
+        return metric_dict
+
     def get_pt_metrics(self):
+        """Calculate Transverse Momentum Metrics"""
 
         pt_true_pos = np.concatenate(self.pt_true_pos, axis=1)
         pt_true = np.concatenate(self.pt_true, axis=1)
@@ -99,10 +114,11 @@ class EmbeddingTelemetry(Callback):
         return centers, ratio_hist
 
     def get_eff_pur_metrics(self):
+        """Calculate Efficiency-Purity Metrics."""
 
         self.distances = torch.cat(self.distances)
         self.truth = torch.cat(self.truth)
-        self.truth_graph = torch.cat(self.truth_graph, axis=1)
+        self.truth_graph = torch.cat(self.truth_graph, dim=1)
 
         r_cuts = np.arange(0.01, self.hparams["r_test"], 0.01)
 
@@ -118,18 +134,6 @@ class EmbeddingTelemetry(Callback):
         pur = true_positives / positives
 
         return eff, pur, r_cuts
-
-    def calculate_metrics(self):
-
-        centers, ratio_hist = self.get_pt_metrics()
-
-        eff, pur, r_cuts = self.get_eff_pur_metrics()
-
-        return {
-            "pt_plot": {"centers": centers, "ratio_hist": ratio_hist},
-            "eff_plot": {"eff": eff, "r_cuts": r_cuts},
-            "pur_plot": {"pur": pur, "r_cuts": r_cuts},
-        }
 
     def make_plot(self, x_val, y_val, x_lab, y_lab, title):
 
@@ -151,8 +155,13 @@ class EmbeddingTelemetry(Callback):
             metrics["pt_plot"]["centers"],
             metrics["pt_plot"]["ratio_hist"],
         )
+
         pt_fig, pt_axs = self.make_plot(
-            centers, ratio_hist, "pT (GeV)", "Efficiency", "Metric Learning Efficiency"
+            centers,
+            ratio_hist,
+            "pT (GeV)",
+            "Efficiency",
+            "Metric Learning Efficiency",
         )
 
         eff_fig, eff_axs = self.make_plot(
@@ -162,6 +171,7 @@ class EmbeddingTelemetry(Callback):
             "Eff",
             "Efficiency vs. radius",
         )
+
         pur_fig, pur_axs = self.make_plot(
             metrics["pur_plot"]["r_cuts"],
             metrics["pur_plot"]["pur"],
@@ -169,6 +179,7 @@ class EmbeddingTelemetry(Callback):
             "Pur",
             "Purity vs. radius",
         )
+
         roc_fig, roc_axs = self.make_plot(
             metrics["pur_plot"]["pur"],
             metrics["eff_plot"]["eff"],
@@ -197,13 +208,14 @@ class EmbeddingBuilder(Callback):
 
     This callback is used to apply a trained embedding model to the dataset of a LightningModule.
     The data structure is preloaded in the model, as training, validation and testing sets.
-    Intended usage: run training and examine the telemetry to decide on the hyperparameters (e.g. r_test) that
-    lead to desired efficiency-purity tradeoff. Then set these hyperparameters in the pipeline configuration and run
-    with the --inference flag. Otherwise, to just run straight through automatically, train with this callback included.
-
+    Intended usage: run training and examine the telemetry to decide on the hyperparameters (e.g. r_test)
+    that lead to desired efficiency-purity tradeoff. Then set these hyperparameters in the pipeline
+    configuration and run with the --inference flag. Otherwise, to just run straight through automatically,
+    train with this callback included.
     """
 
     def __init__(self):
+        self.datatypes = None
         self.output_dir = None
         self.overwrite = False
 
@@ -226,7 +238,9 @@ class EmbeddingBuilder(Callback):
                     if (
                         not os.path.exists(
                             os.path.join(
-                                self.output_dir, datatype, batch.event_file[-4:]
+                                self.output_dir,
+                                datatype,
+                                str(int(batch.event_file[-10:])),
                             )
                         )
                     ) or self.overwrite:
@@ -254,7 +268,7 @@ class EmbeddingBuilder(Callback):
             pl_module.hparams.overwrite if "overwrite" in pl_module.hparams else False
         )
 
-        # By default, the set of examples propagated through the pipeline will be train+val+test set
+        # By default, the set of examples propagated through the pipeline will be 'train+val+test' set
         datasets = {
             "train": pl_module.trainset,
             "val": pl_module.valset,
@@ -291,13 +305,14 @@ class EmbeddingBuilder(Callback):
         # Make truth bidirectional
         e_bidir = torch.cat(
             [batch.signal_true_edges, batch.signal_true_edges.flip(0)],
-            axis=-1,
+            dim=-1,
         )
 
         # Build the radius graph with radius < r_test
         e_spatial = build_edges(
             spatial, spatial, indices=None, r_max=pl_module.hparams.r_test, k_max=1000
-        )  # This step should remove reliance on r_val, and instead compute an r_build based on the EXACT r required to reach target eff/pur
+        )  # This step should remove reliance on r_val, and instead compute an r_build
+        # based on the EXACT r required to reach target eff/pur
 
         # Arbitrary ordering to remove half of the duplicate edges
         R_dist = torch.sqrt(batch.x[:, 0] ** 2 + batch.x[:, 2] ** 2)
@@ -321,8 +336,9 @@ class EmbeddingBuilder(Callback):
     def save_downstream(self, batch, pl_module, datatype):
 
         with open(
-            os.path.join(self.output_dir, datatype, batch.event_file[-4:]), "wb"
+            os.path.join(self.output_dir, datatype, str(int(batch.event_file[-10:]))),
+            "wb",
         ) as pickle_file:
             torch.save(batch, pickle_file)
 
-        logging.info("Saved event {}".format(batch.event_file[-4:]))
+        logging.info("Saved event {}".format(batch.event_file))

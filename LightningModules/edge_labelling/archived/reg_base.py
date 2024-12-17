@@ -104,7 +104,10 @@ class RegressionBase(LightningModule):
 
         if "hybrid" in self.hparams["regime"]:
             loss += F.binary_cross_entropy_with_logits(
-                node_output, node_truth.float(), weight=manual_weights, pos_weight=weight
+                node_output,
+                node_truth.float(),
+                weight=manual_weights,
+                pos_weight=weight,
             )
 
         self.log("train_loss", loss)
@@ -187,15 +190,17 @@ class RegressionBase(LightningModule):
 
         return outputs
 
-    def optimizer_step(self,
-                       epoch,
-                       batch_idx,
-                       optimizer,
-                       optimizer_idx=0,  # ADAK: optimizer_idx to optimizer_idx=0
-                       optimizer_closure=None,
-                       on_tpu=False,
-                       using_native_amp=False,
-                       using_lbfgs=False):
+    def optimizer_step(
+        self,
+        epoch,
+        batch_idx,
+        optimizer,
+        optimizer_idx=0,  # ADAK: optimizer_idx to optimizer_idx=0
+        optimizer_closure=None,
+        on_tpu=False,
+        using_native_amp=False,
+        using_lbfgs=False,
+    ):
         """Optimizer Step Hook"""
         # warm up lr
         if (self.hparams["warmup"] is not None) and (

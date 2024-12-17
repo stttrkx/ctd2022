@@ -18,9 +18,11 @@ class CheckResAGNN(GNNBase):
         It was tested in "Performance of a geometric deep learning pipeline for HL-LHC
         particle tracking" [arXiv:2103.06995] by Exa.TrkX. No other study exist so far.
         """
-        
+
         concatenation_factor = (
-            3 if (self.hparams["aggregation"] in ["sum_max", "mean_max", "mean_sum"]) else 2
+            3
+            if (self.hparams["aggregation"] in ["sum_max", "mean_max", "mean_sum"])
+            else 2
         )
         hparams["output_activation"] = (
             None if "output_activation" not in hparams else hparams["output_activation"]
@@ -28,7 +30,7 @@ class CheckResAGNN(GNNBase):
         hparams["batchnorm"] = (
             False if "batchnorm" not in hparams else hparams["batchnorm"]
         )
-        
+
         # Setup input network
         self.input_network = make_mlp(
             (hparams["spatial_channels"] + hparams["cell_channels"]),
@@ -38,12 +40,20 @@ class CheckResAGNN(GNNBase):
             layer_norm=hparams["layernorm"],
             batch_norm=hparams["batchnorm"],
         )
-        
+
         # Setup edge network
         self.edge_network = make_mlp(
-            (hparams["spatial_channels"] + hparams["cell_channels"] + hparams["hidden"]) * 2,
-            ([hparams["spatial_channels"] + hparams["cell_channels"]
-              + hparams["hidden"]]*hparams["nb_edge_layer"] + [1]),
+            (hparams["spatial_channels"] + hparams["cell_channels"] + hparams["hidden"])
+            * 2,
+            (
+                [
+                    hparams["spatial_channels"]
+                    + hparams["cell_channels"]
+                    + hparams["hidden"]
+                ]
+                * hparams["nb_edge_layer"]
+                + [1]
+            ),
             hidden_activation=hparams["hidden_activation"],
             output_activation=hparams["output_activation"],
             layer_norm=hparams["layernorm"],
@@ -52,7 +62,12 @@ class CheckResAGNN(GNNBase):
 
         # Setup node network
         self.node_network = make_mlp(
-            concatenation_factor * (hparams["spatial_channels"] + hparams["cell_channels"] + hparams["hidden"]),
+            concatenation_factor
+            * (
+                hparams["spatial_channels"]
+                + hparams["cell_channels"]
+                + hparams["hidden"]
+            ),
             [hparams["hidden"]] * hparams["nb_node_layer"],
             hidden_activation=hparams["hidden_activation"],
             output_activation=hparams["output_activation"],
@@ -61,13 +76,13 @@ class CheckResAGNN(GNNBase):
         )
 
     def forward(self, x, edge_index):
-        
+
         # Senders and receivers
         start, end = edge_index
-        
+
         # Residual connection
         input_x = x
-        
+
         # Apply input network
         x = self.input_network(x)
 
@@ -76,7 +91,7 @@ class CheckResAGNN(GNNBase):
 
         # Loop over iterations of edge and node networks
         for i in range(self.hparams["n_graph_iters"]):
-            
+
             # Residual connection
             x_inital = x
 
@@ -92,14 +107,14 @@ class CheckResAGNN(GNNBase):
             # ) + scatter_add(
             #    e * x[end], start, dim=0, dim_size=x.shape[0]
             # )
-            
+
             # Message-passing (aggregation) for bidirectional edges.
             # New aggregation fixed for new GNNBase when directed=False.
             # edge_messages = scatter_add(  # sum
             #    e[:, None] * x[start], end, dim=0, dim_size=x.shape[0]
             #    e * x[start], end, dim=0, dim_size=x.shape[0]
             # )
-            
+
             # aggregation: sum, mean, max, sum_max, mean_sum, mean_max
             edge_messages = None
             if self.hparams["aggregation"] == "sum":
@@ -138,7 +153,7 @@ class CheckResAGNN(GNNBase):
                     ],
                     dim=-1,
                 )
-            
+
             # Apply node network
             node_inputs = torch.cat([edge_messages, x], dim=1)
             x = checkpoint(self.node_network, node_inputs)

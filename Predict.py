@@ -8,48 +8,50 @@ import pytorch_lightning as pl
 from torch_geometric.loader import DataLoader
 from LightningModules.GNN import InteractionGNN
 from LightningModules.GNN.utils.data_utils import split_datasets, load_dataset
-device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+device = "cuda" if torch.cuda.is_available() else "cpu"
 pp = pprint.PrettyPrinter(indent=2)
 
 
 class SttDataModule(pl.LightningDataModule):
-    """"DataModules are a way of decoupling data-related hooks from the LightningModule"""
+    """ "DataModules are a way of decoupling data-related hooks from the LightningModule"""
+
     def __init__(self, hparams):
         super().__init__()
-        
+
         # Save hyperparameters
         self.save_hyperparameters(hparams)
-        
+
         # Set workers from hparams
         self.n_workers = (
             self.hparams["n_workers"]
             if "n_workers" in self.hparams
             else len(os.sched_getaffinity(0))
         )
-        
+
         self.data_split = (
             self.hparams["train_split"]
             if "train_split" in self.hparams
             else [0, 0, 5000]
         )
-        
+
         self.trainset, self.valset, self.testset = None, None, None
         self.predset = None
 
     def print_params(self):
         pp.pprint(self.hparams)
-        
+
     def setup(self, stage=None):
-        
+
         if stage == "fit" or stage is None:
             self.trainset, self.valset, self.testset = split_datasets(**self.hparams)
 
         if stage == "test" or stage is None:
-            print("Number of Test Events: ", self.hparams['train_split'][2])
+            print("Number of Test Events: ", self.hparams["train_split"][2])
             self.testset = load_dataset(self.hparams["input_dir"], self.data_split[2])
-            
+
         if stage == "pred" or stage is None:
-            print("Number of Pred Events: ", self.hparams['train_split'][2])
+            print("Number of Pred Events: ", self.hparams["train_split"][2])
             self.predset = load_dataset(self.hparams["input_dir"], self.data_split[2])
 
     def train_dataloader(self):
@@ -108,23 +110,25 @@ def eval_model(model, test_dataloader):
     """Function to Evaluate a Model"""
     scores, truths = [], []
     model.eval()
-    with torch.no_grad():  
+    with torch.no_grad():
         for batch_idx, batch in enumerate(test_dataloader):
-            
+
             # logging
             if batch_idx % 1000 == 0:
                 print("Processed Batches: ", batch_idx)
-            
+
             # predictions
             input_data = get_input_data(batch)
-            edge_sample, truth_sample = handle_directed(batch, batch.edge_index, batch.y_pid)
+            edge_sample, truth_sample = handle_directed(
+                batch, batch.edge_index, batch.y_pid
+            )
             output = model(input_data, edge_sample).squeeze()
             score = torch.sigmoid(output)
-            
+
             # append each batch
             scores.append(score)
             truths.append(truth_sample)
-            
+
     return torch.cat(scores), torch.cat(truths)
 
 

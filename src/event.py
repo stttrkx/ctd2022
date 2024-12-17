@@ -19,10 +19,11 @@ except KeyError as e:
 
 
 # detector file
-detector_path = os.path.join(output_base, 'stt.csv')
+detector_path = os.path.join(output_base, "stt.csv")
 
 
 # TODO: Adapt Event class to STT Dataset (from xju2-gnn/heptrkx/dataset/event.py)
+
 
 # Event Class
 class Event(object):
@@ -49,7 +50,9 @@ class Event(object):
         event_prefix = os.path.join(os.path.expandvars(self._path), prefix)
 
         try:
-            all_data = trackml.dataset.load_event(event_prefix, parts=['hits', 'particles', 'truth', 'cells'])
+            all_data = trackml.dataset.load_event(
+                event_prefix, parts=["hits", "particles", "truth", "cells"]
+            )
         except Exception as e:
             return e
 
@@ -63,8 +66,8 @@ class Event(object):
         px = particles.px
         py = particles.py
         pz = particles.pz
-        pt = np.sqrt(px ** 2 + py ** 2)
-        momentum = np.sqrt(px ** 2 + py ** 2 + pz ** 2)
+        pt = np.sqrt(px**2 + py**2)
+        momentum = np.sqrt(px**2 + py**2 + pz**2)
         ptheta = np.arccos(pz / momentum)
         peta = -np.log(np.tan(0.5 * ptheta))
         particles = particles.assign(pt=pt, peta=peta)
@@ -101,7 +104,7 @@ class Event(object):
         return self._evtid
 
     def merge_truth_info_to_hits(self):
-        """Merge truth information ('truth', 'particles') to 'hits'. 
+        """Merge truth information ('truth', 'particles') to 'hits'.
         Then calculate and add derived variables to the event."""
 
         hits = self._hits
@@ -116,32 +119,37 @@ class Event(object):
 
         # skip skewed tubes
         if self._skewed is False:
-            hits = hits.query('skewed==0')
+            hits = hits.query("skewed==0")
 
             # rename layers from 0,1,2...,17 & assign to "layer" column
             vlids = hits.layer_id.unique()
             n_det_layers = hits.layer_id.unique().shape[0]
-            vlid_groups = hits.groupby(['layer_id'])
-            hits = pd.concat([vlid_groups.get_group(vlids[i]).assign(layer=i) for i in range(n_det_layers)])
+            vlid_groups = hits.groupby(["layer_id"])
+            hits = pd.concat(
+                [
+                    vlid_groups.get_group(vlids[i]).assign(layer=i)
+                    for i in range(n_det_layers)
+                ]
+            )
             self._hits = hits.reset_index(drop=True)
 
         # merge 'hits' with 'truth'
-        hits = hits.merge(truth, on="hit_id", how='left')
+        hits = hits.merge(truth, on="hit_id", how="left")
 
         # add new features to 'hits'
         x = hits.x
         y = hits.y
         z = hits.z
         absz = np.abs(z)
-        r = np.sqrt(x ** 2 + y ** 2)  # in 2D
-        r3 = np.sqrt(r ** 2 + z ** 2)  # in 3D
+        r = np.sqrt(x**2 + y**2)  # in 2D
+        r3 = np.sqrt(r**2 + z**2)  # in 3D
         phi = np.arctan2(hits.y, hits.x)
         theta = np.arccos(z / r3)
-        eta = -np.log(np.tan(theta / 2.))
+        eta = -np.log(np.tan(theta / 2.0))
 
         tpx = hits.tpx
         tpy = hits.tpy
-        tpt = np.sqrt(tpx ** 2 + tpy ** 2)
+        tpt = np.sqrt(tpx**2 + tpy**2)
 
         # add derived quantities to 'hits'
         hits = hits.assign(r=r, phi=phi, eta=eta, r3=r3, absZ=absz, tpt=tpt)
@@ -149,7 +157,7 @@ class Event(object):
 
     def reconstructable_pids(self, min_hits=4):
         """Find reconstructable particles with min_hits > 4"""
-        truth_particles = self.particles.merge(self.truth, on='particle_id', how='left')
+        truth_particles = self.particles.merge(self.truth, on="particle_id", how="left")
         reconstructable_particles = truth_particles[truth_particles.nhits > min_hits]
         return np.unique(reconstructable_particles.particle_id)
 
@@ -170,7 +178,7 @@ class Event(object):
     def remove_duplicated_hits(self, inplace=True):
         """Remove duplicate hits"""
         hits = self._hits.loc[
-            self._hits.groupby(['particle_id', 'layer'], as_index=False).r.idxmin()
+            self._hits.groupby(["particle_id", "layer"], as_index=False).r.idxmin()
         ]
         if inplace:
             self._hits = hits
@@ -190,9 +198,11 @@ class Event(object):
         """Count duplicate hits"""
         # sel is the number of "extra" hits
         # if not duplication, sel = 0; otherwise it is the number of duplication
-        sel = self._hits.groupby("particle_id")['layer'].apply(
-            lambda x: len(x) - np.unique(x).shape[0]
-        ).values
+        sel = (
+            self._hits.groupby("particle_id")["layer"]
+            .apply(lambda x: len(x) - np.unique(x).shape[0])
+            .values
+        )
         return sel
 
 
@@ -201,102 +211,131 @@ def Build_Event(inputdir="", evtid=0, noise=False, skewed=True, selection=False)
     """Merge truth information ('truth', 'particles') to 'hits'.
     Then calculate and add derived variables to the event. Keep
     the necessary columns in the final dataframe."""
-    
+
     # get event prefix
     prefix = "event{:010d}".format(evtid)
     event_prefix = os.path.join(os.path.expandvars(inputdir), prefix)
-        
+
     # load data using event_prefix (e.g. path/to/event0000000001)
     hits, tubes, particles, truth = trackml.dataset.load_event(event_prefix)
-    
+
     # drop duplicates (present due to "PndMLTracker")
-    particles['nhits'] = particles.groupby(['particle_id'])['nhits'].transform('count')
+    particles["nhits"] = particles.groupby(["particle_id"])["nhits"].transform("count")
     particles.drop_duplicates(inplace=True, ignore_index=True)
-    
+
     # particle selection
     if selection:
-        particles = particles[particles['pdgcode'].isin([-2212, 2212, -211, 211])].reset_index(drop=True)
-        
+        particles = particles[
+            particles["pdgcode"].isin([-2212, 2212, -211, 211])
+        ].reset_index(drop=True)
+
     # handle noise
     if noise:
         truth = truth.merge(
-            particles[["particle_id", "vx", "vy", "vz", "q", "nhits"]], on="particle_id", how="left"
+            particles[["particle_id", "vx", "vy", "vz", "q", "nhits"]],
+            on="particle_id",
+            how="left",
         )
     else:
         truth = truth.merge(
-            particles[["particle_id", "vx", "vy", "vz", "q", "nhits"]], on="particle_id", how="inner"
+            particles[["particle_id", "vx", "vy", "vz", "q", "nhits"]],
+            on="particle_id",
+            how="inner",
         )
-    
+
     # calculate derived variables from 'truth'
     px = truth.tpx
     py = truth.tpy
     pz = truth.tpz
-    
+
     pt = np.sqrt(px**2 + py**2)
     ptheta = np.arctan2(pt, pz)
     peta = -np.log(np.tan(0.5 * ptheta))
-    
+
     truth = truth.assign(pt=pt, ptheta=ptheta, peta=peta)
 
     # merge some columns of tubes to the hits, I need isochrone, skewed & sector_id
-    hits = hits.merge(tubes[["hit_id", "isochrone", "skewed", "sector_id"]], on="hit_id")
+    hits = hits.merge(
+        tubes[["hit_id", "isochrone", "skewed", "sector_id"]], on="hit_id"
+    )
 
     # handle skewed layers
     if skewed is False:
-        hits = hits.query('skewed==0')
+        hits = hits.query("skewed==0")
 
         # rename layer_ids from 0,1,2...,n
         vlids = hits.layer_id.unique()
         n_det_layers = len(vlids)
-        vlid_groups = hits.groupby(['layer_id'])
-        hits = pd.concat([vlid_groups.get_group(vlids[i]).assign(layer_id=i) for i in range(n_det_layers)])
-    
+        vlid_groups = hits.groupby(["layer_id"])
+        hits = pd.concat(
+            [
+                vlid_groups.get_group(vlids[i]).assign(layer_id=i)
+                for i in range(n_det_layers)
+            ]
+        )
+
     # reset index, maybe its jumbled up
     hits = hits.reset_index(drop=True)
-    
+
     # calculate derived variables from 'hits'
     r = np.sqrt(hits.x**2 + hits.y**2)
     phi = np.arctan2(hits.y, hits.x)
     r3 = np.sqrt(hits.x**2 + hits.y**2 + hits.z**2)
     theta = np.arccos(hits.z / r3)
-    eta = -np.log(np.tan(theta / 2.))
-    
+    eta = -np.log(np.tan(theta / 2.0))
+
     # merge 'hits' with 'truth', but first add r, phi, theta, eta
     hits = hits.assign(r=r, phi=phi, theta=theta, eta=eta).merge(truth, on="hit_id")
 
     # add 'event_id' column to this event.
     hits = hits.assign(event_id=int(event_prefix[-10:]))
-    
+
     return hits
 
 
 # Visualize Event (Using Object Oriented API)
-def Build_Event_Viz(event=None, figsize=(10,10), fig_type="pdf", save_fig=False):
+def Build_Event_Viz(event=None, figsize=(10, 10), fig_type="pdf", save_fig=False):
     """Visualize a single event from Build_Event()."""
-    
+
     # draw detector layout
     fig, ax = detector_layout(figsize=figsize)
-    
+
     # get colormap for consistent track colors
-    cmap = ['blue', 'red', 'green', 'orange', 'purple', 'magenta', 'black',
-            'gray', 'lime', 'teal', 'navy', 'maroon', 'olive', 'indigo', 'cyan']
-    
+    cmap = [
+        "blue",
+        "red",
+        "green",
+        "orange",
+        "purple",
+        "magenta",
+        "black",
+        "gray",
+        "lime",
+        "teal",
+        "navy",
+        "maroon",
+        "olive",
+        "indigo",
+        "cyan",
+    ]
+
     # get event_id and particle_id
     evtid = np.unique(event.event_id.values)
-    unique_pids =  np.unique(event.particle_id.values).astype(int)
-    
+    unique_pids = np.unique(event.particle_id.values).astype(int)
+
     # draw particles
     for pid in unique_pids:
         df = event.loc[event.particle_id == pid]
-        ax.scatter(df.x.values, df.y.values, color=cmap[pid], label=f'particle_id: {pid}')  
-    
+        ax.scatter(
+            df.x.values, df.y.values, color=cmap[pid], label=f"particle_id: {pid}"
+        )
+
     # axis params
     evtid = np.unique(event.event_id.values)
-    ax.set_title('Event # {}'.format(evtid))
-    ax.legend(fontsize=12, loc='best')
+    ax.set_title("Event # {}".format(evtid))
+    ax.legend(fontsize=12, loc="best")
     fig.tight_layout()
-    
+
     # save figure
     if save_fig:
-        fig.savefig('event_{}.{}'.format(evtid, fig_type))
-
+        fig.savefig("event_{}.{}".format(evtid, fig_type))

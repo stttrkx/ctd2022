@@ -69,15 +69,15 @@ class NodeNetwork(nn.Module):
 
     def forward(self, x, e, edge_index):
         start, end = edge_index
-        
+
         # Original Aggregation Opertion (i.e. CTD 2018):
         # Aggregate edge-weighted edges going in both directions and handle them separately
         # mi = scatter_add(e[:, None] * x[start], end, dim=0, dim_size=x.shape[0])
         # mo = scatter_add(e[:, None] * x[end], start, dim=0, dim_size=x.shape[0])
         # node_inputs = torch.cat([mi, mo, x], dim=1)
-        
+
         # New Aggregation Operation (i.e. CTD 2019):
-        
+
         # Message-passing (aggregation) for unidirectional edges.
         # Old aggregation fixed for GNNBase when directed=True.
         # messages = scatter_add(
@@ -85,14 +85,17 @@ class NodeNetwork(nn.Module):
         # ) + scatter_add(
         #    e[:, None] * x[end], start, dim=0, dim_size=x.shape[0]
         # )
-        
+
         # Message-passing (aggregation) for bidirectional edges.
         # New aggregation fixed for new GNNBase when directed=False.
         messages = scatter_add(
             # e[:, None] * x[start], end, dim=0, dim_size=x.shape[0]
-            e * x[start], end, dim=0, dim_size=x.shape[0]
+            e * x[start],
+            end,
+            dim=0,
+            dim_size=x.shape[0],
         )
-        
+
         node_inputs = torch.cat([messages, x], dim=1)
         return self.network(node_inputs)
 
@@ -122,7 +125,7 @@ class ResAGNN(GNNBase):
             hparams["hidden_activation"],
             hparams["layernorm"],
         )
-        
+
         # Setup node layers
         self.node_network = NodeNetwork(
             hparams["spatial_channels"] + hparams["hidden"],

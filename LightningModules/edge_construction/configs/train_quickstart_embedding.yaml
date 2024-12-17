@@ -1,55 +1,54 @@
 # Input/output configuration
-input_dir: ${EXATRKX_DATA}/run_all/feature_store
-output_dir: ${EXATRKX_DATA}/run_all/graph_construction
-project: EmbeddingStudy
+input_dir: ${EXATRKX_DATA}/run/data_processing
+output_dir: ${EXATRKX_DATA}/run/graph_construction
+project: MetricStudy
 overwrite: True
 
-# Dataset parameters
-pt_signal_cut: .0        # 1.0, Here, one should set to 0. as simulation is done 1.642 GeV energy, it will retunr empty tensor
-pt_background_cut: .0    # 1.0, Here, one should set to 0. as simulation is done 1.642 GeV energy, it will retunr empty tensor
-train_split: [[800, 100, 100]] # Number of [training, validation, testing] examples
-true_edges: modulewise_true_edges
-noise: False
-n_workers: 8
+# Dataset
+pt_signal_cut: .0
+pt_background_cut: .0
+train_split: [[8000, 1000, 1000]] # Number of [training, validation, testing] examples
+true_edges: orderwise_true_edges  # during data loading becomes signal_true_edges
+noise: False                      # never used, why and who handle noise?
+n_workers: 4
 
-# Model parameters
+# Network
 spatial_channels: 3
-cell_channels: 8
+cell_channels: 0
 emb_hidden: 1024
 nb_layer: 4
 emb_dim: 12
-weight: 2                 # ??
 activation: Tanh
-
-# Random Pairs
-randomisation: 2
-points_per_batch: 100000  # ??
-
-# Build Edges, kNN
-r_train: 0.1              # knn radius (train) [r: float, giving the search radius for 
-                          # the query points (neighbors with distance > search radius would be discarded]
-r_val: 0.1                # knn radius (val)
-r_test: 0.1               # knn radius (test)
-knn: 100                  # knn neighhors (K: int, number of nearest neighbors to return)
-
-# Train Step()
-margin: 0.1
-
 
 # Optimizer
 warmup: 3
-lr: 0.001
+lr: 0.0001
 factor: 0.3
 patience: 10
 
-regime: [[rp, hnm]]       # [[rp, ci, hnm, norm]]
+# Loss Function
+margin: 0.1
 
-# Trainer Fit()
-max_epochs: 10
+# Build Edges using kNN
+r_train: 0.1
+r_val: 0.1
+r_test: 0.1
+knn: 100
+
+weight: 2                  # used in train_step()
+randomisation: 2           # used in append_random_pairs()
+points_per_batch: 100000   # used in get_query_points()
+regime: [[rp, hnm]]        # used in train_step() to append hnm/random pairs
+
+# Training
+max_epochs: 30
 
 # Postprocessing
-# callbacks: [[EmbeddingTelemetry, EmbeddingBuilder]]
 callbacks: [[EmbeddingBuilder]]
 
-# Logging
-# wandb_save_dir: /global/cscratch1/sd/danieltm/ExaTrkX/wandb_data
+
+# regime: currently following options are handled by regime parameter
+# 1. query_all_points, query_noise_points
+# 2. low_purity in append_hnm_pairs()
+# 3. rp, hnm in train_step()
+# 3. norm in forward(), I removed it as use norm always.

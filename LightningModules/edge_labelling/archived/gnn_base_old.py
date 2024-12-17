@@ -5,6 +5,7 @@ import pytorch_lightning as pl
 from pytorch_lightning import LightningModule
 from datetime import timedelta
 import torch.nn.functional as F
+
 # FIXME::ADAK: DataLoader is moved from torch_geometric.data to torch_geometric.loader
 # from torch_geometric.data import DataLoader
 from torch_geometric.loader import DataLoader
@@ -15,6 +16,7 @@ from .utils.gnn_utils import load_dataset, random_edge_slice_v2
 from sklearn.metrics import roc_auc_score
 
 # FIXME::ADAK: I have removed .bool() from y_pid and y varialbe, it gives an error.
+
 
 class GNNBase(LightningModule):
     def __init__(self, hparams):
@@ -104,7 +106,7 @@ class GNNBase(LightningModule):
 
     def handle_directed(self, batch, edge_sample, truth_sample):
 
-        edge_sample = torch.cat([edge_sample, edge_sample.flip(0)], dim=-1)        
+        edge_sample = torch.cat([edge_sample, edge_sample.flip(0)], dim=-1)
         truth_sample = truth_sample.repeat(2)
 
         if ("directed" in self.hparams.keys()) and self.hparams["directed"]:
@@ -122,10 +124,8 @@ class GNNBase(LightningModule):
             else torch.tensor((~batch.y_pid).sum() / batch.y_pid.sum())
         )
 
-        truth = (
-            batch.y_pid if "pid" in self.hparams["regime"] else batch.y
-        )
-        
+        truth = batch.y_pid if "pid" in self.hparams["regime"] else batch.y
+
         edge_sample, truth_sample = self.handle_directed(batch, batch.edge_index, truth)
         input_data = self.get_input_data(batch)
         output = self(input_data, edge_sample).squeeze()
@@ -147,15 +147,13 @@ class GNNBase(LightningModule):
 
         edge_positive = (preds > self.hparams["edge_cut"]).sum().float()
         edge_true = truth.sum().float()
-        edge_true_positive = (
-            (truth & (preds > self.hparams["edge_cut"])).sum().float()
-        )
-        
+        edge_true_positive = (truth & (preds > self.hparams["edge_cut"])).sum().float()
+
         eff = (edge_true_positive / max(1, edge_true)).clone().detach()
         pur = (edge_true_positive / max(1, edge_positive)).clone().detach()
-        
+
         auc = roc_auc_score(truth.cpu().detach(), preds.cpu().detach())
-        
+
         current_lr = self.optimizers().param_groups[0]["lr"]
         self.log_dict(
             {
@@ -168,17 +166,15 @@ class GNNBase(LightningModule):
         )
 
     def shared_evaluation(self, batch, batch_idx, log=False):
-        
+
         weight = (
             torch.tensor(self.hparams["weight"])
             if ("weight" in self.hparams)
             else torch.tensor((~batch.y_pid).sum() / batch.y_pid.sum())
         )
 
-        truth = (
-            batch.y_pid if "pid" in self.hparams["regime"] else batch.y
-        )
-        
+        truth = batch.y_pid if "pid" in self.hparams["regime"] else batch.y
+
         edge_sample, truth_sample = self.handle_directed(batch, batch.edge_index, truth)
         input_data = self.get_input_data(batch)
         output = self(input_data, edge_sample).squeeze()
@@ -194,8 +190,8 @@ class GNNBase(LightningModule):
 
         # Edge filter performance
         # FIXME::ADAK: UserWarning: nn.functional.sigmoid is deprecated. Use torch.sigmoid instead
-        preds = torch.sigmoid(output) # F.sigmoid(output)
-        
+        preds = torch.sigmoid(output)  # F.sigmoid(output)
+
         if log:
             self.log_metrics(preds, truth_sample, batch, loss)
 
@@ -220,7 +216,7 @@ class GNNBase(LightningModule):
     def test_step_end(self, output_results):
         # print("Step:", output_results)
         pass
-    
+
     def test_epoch_end(self, outputs):
         # print("Epoch:", outputs)
         pass

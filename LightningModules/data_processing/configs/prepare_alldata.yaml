@@ -1,6 +1,6 @@
 # I/O Configuration
 input_dir: ${EXATRKX_DATA}/data_all
-output_dir: ${EXATRKX_DATA}/run/feature_store
+output_dir: ${EXATRKX_DATA}/run/data_processing
 
 n_files: 100000
 n_workers: 64
@@ -14,13 +14,13 @@ layerwise: False            # get layerwise true edges (GT1), OR
 modulewise: False           # get modulewise true edges (GT2), OR
 orderwise: True             # get orderwise true edges (GT3), OR
 timeordered: False          # get timewise true edges (GT4)
-inputedges: oldLayerwise    # get input edges (oldLayerwise, newLayerwise, all)
+inputedges: newLayerwise    # get input edges (None, oldLayerwise, newLayerwise, all)
 filtering: True             # get input edges (with/without adjacent sectors)
 selection: False            # particle selection
 
-# if inputedges=True:
+# if inputedges!=None:
 # then 'edge_index' will be built in the Processing stage, so one can use GNN stage right after that i.e. skipping Embedding & Filtering
 
-# if inputedges=False:
+# if inputedges=None:
 # then 'edge_index' will be skipped in the Processing stage. Which means one should either build `edge_index` explicitly or may go through
 # the Embedding and/or filtering stages. To use GNN stage, one needs in input data containing `edge_index` variable which is input to GNN.

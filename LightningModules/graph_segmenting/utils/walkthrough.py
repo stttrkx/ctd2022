@@ -31,15 +31,20 @@ from functools import partial
 
 # Local imports
 from torch_geometric.utils import to_scipy_sparse_matrix
+
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 def find_all_paths(start, G=None, ending_nodes=None):
-    return list(chain.from_iterable([
-        list(nx.all_simple_paths(G, start, end))
-        for end in ending_nodes
-        if nx.has_path(G, start, end)
-    ]))
+    return list(
+        chain.from_iterable(
+            [
+                list(nx.all_simple_paths(G, start, end))
+                for end in ending_nodes
+                if nx.has_path(G, start, end)
+            ]
+        )
+    )
 
 
 def find_shortest_paths(start, G=None, ending_nodes=None):
@@ -62,21 +67,21 @@ def walkthrough_labelling(input_file, output_dir, edge_cut=0.5, **kwargs):
 
             logging.info("Preparing event {}".format(output_file))
             graph = torch.load(input_file, map_location="cpu")
-            
+
             # edge scores
             scores = graph.scores
-            
+
             # half the length, gnn gives scores for bidirected graphs
-            scores = scores[:graph.edge_index.shape[1]] 
-            
+            scores = scores[: graph.edge_index.shape[1]]
+
             # apply edge score cut
             edge_mask = scores > edge_cut
-            
+
             # Convert to sparse scipy array
             new_graph = graph.clone()
             new_graph.edge_index = new_graph.edge_index[:, edge_mask]
             new_graph.scores = new_graph.scores[edge_mask]
-    
+
             # Convert to networkx graph
             G = to_networkx(new_graph, to_undirected=False)
             G.remove_nodes_from(list(nx.isolates(G)))
@@ -87,7 +92,9 @@ def walkthrough_labelling(input_file, output_dir, edge_cut=0.5, **kwargs):
             workers = 8  # TODO: Remove this hardcoded value
 
             # Make partial method for multiprocessing
-            find_paths_partial = partial(find_shortest_paths, G=G, ending_nodes=ending_nodes)
+            find_paths_partial = partial(
+                find_shortest_paths, G=G, ending_nodes=ending_nodes
+            )
 
             # Run multiprocessing
             with Pool(workers) as p:
@@ -96,13 +103,15 @@ def walkthrough_labelling(input_file, output_dir, edge_cut=0.5, **kwargs):
             track_df = pd.DataFrame(
                 {
                     "hit_id": list(chain.from_iterable(paths)),
-                    "track_id": list(chain.from_iterable([[i] * len(p) for i, p in enumerate(paths)])),
+                    "track_id": list(
+                        chain.from_iterable([[i] * len(p) for i, p in enumerate(paths)])
+                    ),
                 }
             )
 
             # Remove duplicates on hit_id: TODO: In very near future, handle multiple tracks through the same hit!
             track_df = track_df.drop_duplicates(subset="hit_id")
-            
+
             hit_id = track_df.hit_id
             track_id = track_df.track_id
 

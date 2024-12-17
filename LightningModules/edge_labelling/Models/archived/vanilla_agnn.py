@@ -68,7 +68,7 @@ class VanillaAGNN(GNNBase):
             messages = scatter_add(
                 e * x[start], end, dim=0, dim_size=x.shape[0]
             ) + scatter_add(e * x[end], start, dim=0, dim_size=x.shape[0])
-            
+
             node_inputs = torch.cat([messages, x], dim=1)
             x = self.node_network(node_inputs)
 

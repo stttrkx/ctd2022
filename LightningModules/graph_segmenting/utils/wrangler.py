@@ -12,7 +12,7 @@ from functools import partial
 from .utils_fit import pairwise, poly_fit_phi
 
 
-def find_next_hits(G, pp, used_hits, th=0.1, th_re=0.8, feature_name='solution'):
+def find_next_hits(G, pp, used_hits, th=0.1, th_re=0.8, feature_name="solution"):
     """G is the graph, path is previous hits."""
 
     nbrs = list(set(G.neighbors(pp)).difference(set(used_hits)))
@@ -89,8 +89,10 @@ def fit_road(G, road):
     """use a linear function to fit phi as a function of z."""
     road_chi2 = []
     for path in road:
-        z = np.array([G.nodes[i]['x'][2] for i in path[:-1]])    # ADAK: G.node (v1.x) to G.nodes (v2.x)
-        phi = np.array([G.nodes[i]['x'][1] for i in path[:-1]])  # ADAK: 'pos' to 'x'
+        z = np.array(
+            [G.nodes[i]["x"][2] for i in path[:-1]]
+        )  # ADAK: G.node (v1.x) to G.nodes (v2.x)
+        phi = np.array([G.nodes[i]["x"][1] for i in path[:-1]])  # ADAK: 'pos' to 'x'
         if len(z) > 1:
             _, _, diff = poly_fit_phi(z, phi)
             road_chi2.append(np.sum(diff) / len(z))
@@ -111,7 +113,7 @@ def chose_a_road(road, diff):
     return res
 
 
-def get_tracks(G, th=0.1, th_re=0.8, feature_name='scores', with_fit=True):
+def get_tracks(G, th=0.1, th_re=0.8, feature_name="scores", with_fit=True):
     """
     Don't use nx.MultiGraphs
     """
@@ -119,10 +121,10 @@ def get_tracks(G, th=0.1, th_re=0.8, feature_name='scores', with_fit=True):
     sub_graphs = []
     next_hit_fn = partial(find_next_hits, th=th, th_re=th_re, feature_name=feature_name)
     for node in G.nodes():
-        if node in used_nodes:  #TODO: ADAK: remove this condition to allow shared hits
+        if node in used_nodes:  # TODO: ADAK: remove this condition to allow shared hits
             continue
         road = build_roads(G, node, next_hit_fn, used_nodes)
-        diff = fit_road(G, road) if with_fit else [0.] * len(road)
+        diff = fit_road(G, road) if with_fit else [0.0] * len(road)
         a_road = chose_a_road(road, diff)
 
         if len(a_road) < 3:
@@ -140,7 +142,7 @@ def get_tracks(G, th=0.1, th_re=0.8, feature_name='scores', with_fit=True):
 
 def wrangler_labelling(input_file, output_dir, edge_cut=0.5, **kwargs):
     """Find tracks using a Walktrhough method..."""
-    
+
     try:
         output_file = os.path.join(output_dir, os.path.split(input_file)[-1])
         if not os.path.exists(output_file) or kwargs["overwrite"]:
@@ -152,7 +154,7 @@ def wrangler_labelling(input_file, output_dir, edge_cut=0.5, **kwargs):
             scores = graph.scores
 
             # half the length, gnn gives scores for bidirected graphs
-            scores = scores[:graph.edge_index.shape[1]]
+            scores = scores[: graph.edge_index.shape[1]]
 
             # apply edge score cut
             edge_mask = scores > edge_cut
@@ -163,15 +165,24 @@ def wrangler_labelling(input_file, output_dir, edge_cut=0.5, **kwargs):
             new_graph.scores = new_graph.scores[edge_mask]
 
             # Convert to networkx graph
-            G = to_networkx(new_graph, node_attrs=['x'], edge_attrs=['scores', 'y_pid'], to_undirected=False)
+            G = to_networkx(
+                new_graph,
+                node_attrs=["x"],
+                edge_attrs=["scores", "y_pid"],
+                to_undirected=False,
+            )
 
             # Build tracks
-            paths = get_tracks(G, th=0.1, th_re=0.8, feature_name='scores', with_fit=False)
+            paths = get_tracks(
+                G, th=0.1, th_re=0.8, feature_name="scores", with_fit=False
+            )
 
             track_df = pd.DataFrame(
                 {
                     "hit_id": list(chain.from_iterable(paths)),
-                    "track_id": list(chain.from_iterable([[i] * len(p) for i, p in enumerate(paths)])),
+                    "track_id": list(
+                        chain.from_iterable([[i] * len(p) for i, p in enumerate(paths)])
+                    ),
                 }
             )
 

@@ -1,19 +1,16 @@
+#!/usr/bin/env python
+# coding: utf-8
+
+"""Ideally, we would be using FRNN and the GPU. But in the case of a user not having
+a GPU, or not having FRNN, we import FAISS as the nearest neighbor library """
+
 import os
 import logging
-
 import torch
 from torch.utils.data import random_split
 from torch import nn
 import scipy as sp
 import numpy as np
-import pandas as pd
-import trackml.dataset
-
-"""
-Ideally, we would be using FRNN and the GPU. But in the case of a user not having a GPU, or not having FRNN, we import FAISS as the 
-nearest neighbor library
-"""
-
 import faiss
 import faiss.contrib.torch_utils
 
@@ -33,51 +30,11 @@ else:
 FRNN_AVAILABLE = False
 
 
-def load_dataset(
-    input_dir,
-    num,
-    pt_background_cut,
-    pt_signal_cut,
-    nhits,
-    primary_only,
-    true_edges,
-    noise,
-):
-    if input_dir is not None:
-    
-        # Get a List of Event Files
-        all_events = os.listdir(input_dir)
-        all_events = sorted([os.path.join(input_dir, event) for event in all_events])
-        loaded_events = []
-        
-        # Load Events
-        for event in all_events[:num]:
-            try:
-                loaded_event = torch.load(event, map_location=torch.device("cpu"))
-                loaded_events.append(loaded_event)
-                logging.info("Loaded event: {}".format(loaded_event.event_file))
-            except:
-                logging.info("Corrupted event file: {}".format(event))
-        
-        # Select Data (Very Important !!!)
-        loaded_events = select_data(
-            loaded_events,
-            pt_background_cut,
-            pt_signal_cut,
-            nhits,
-            primary_only,
-            true_edges,
-            noise,
-        )
-        
-        return loaded_events
-    else:
-        return None
-
-
+# ---------------------------- Data Loading ----------------------------
+# Split dataset
 def split_datasets(
     input_dir="",
-    train_split=[100, 10, 10],
+    train_split=None,
     pt_background_cut=0,
     pt_signal_cut=0,
     nhits=0,
@@ -88,14 +45,18 @@ def split_datasets(
     **kwargs
 ):
     """
-    Prepare the random Train, Val, Test split, using a seed for reproducibility. Seed should be
-    changed across final varied runs, but can be left as default for experimentation.
+    Prepare random train, val, and test split, using a seed for reproducibility.
+    Seed should be changed across final varied runs, but can be left as default
+    for experimentation.
     """
-    
-    # randomize with a seed
+
     torch.manual_seed(seed)
-    
-    # load data using load_dataset()
+
+    # Handle Data Split
+    if train_split is None:
+        train_split = [100, 10, 10]
+
+    # Load Dataset
     loaded_events = load_dataset(
         input_dir,
         sum(train_split),
@@ -105,28 +66,63 @@ def split_datasets(
         primary_only,
         true_edges,
         noise,
+        **kwargs
     )
-    
-    # split data by using random_split() from torch.utils.data
+
+    # Split Dataset
     train_events, val_events, test_events = random_split(loaded_events, train_split)
-    
-    # NOTE: train, val and test events are randomly selected.
+
     return train_events, val_events, test_events
 
 
-def get_edge_subset(edges, mask_where, inverse_mask):
+# Load dataset
+def load_dataset(
+    input_dir,
+    num,
+    pt_background_cut,
+    pt_signal_cut,
+    nhits,
+    primary_only,
+    true_edges,
+    noise,
+    **kwargs
+):
+    """Load events from an input directory upto a number."""
 
-    included_edges_mask = np.isin(edges, mask_where).all(0)
-    included_edges = edges[:, included_edges_mask]
-    included_edges = inverse_mask[included_edges]
+    if input_dir is not None:
+        # list all events
+        all_events = os.listdir(input_dir)
+        all_events = sorted([os.path.join(input_dir, event) for event in all_events])
 
-    return included_edges, included_edges_mask
+        # load events needed
+        loaded_events = []
+        for event in all_events[:num]:
+            try:
+                loaded_event = torch.load(event, map_location=torch.device("cpu"))
+                loaded_events.append(loaded_event)
+            except:
+                logging.info("Corrupted event file: {}".format(event))
+
+        # apply selection on data
+        loaded_events = select_data(
+            loaded_events,
+            pt_background_cut,
+            pt_signal_cut,
+            nhits,
+            primary_only,
+            true_edges,
+            noise,
+        )
+
+        return loaded_events
+    else:
+        return None
 
 
 def select_data(
     events, pt_background_cut, pt_signal_cut, nhits_min, primary_only, true_edges, noise
-):  
-    """Here pt cuts are applied before data is split into train, val and test sets."""
+):
+    """Select data fields, apply selection cuts and add new data fields."""
 
     # Handle event in batched form
     if type(events) is not list:
@@ -136,7 +132,13 @@ def select_data(
     if pt_background_cut > 0 or not noise:
         for event in events:
 
-            pt_mask = (event.pt > pt_background_cut) & (event.pid == event.pid) & (event.pid != 0)
+            # get pt_mask
+            pt_mask = (
+                (event.pt > pt_background_cut)
+                & (event.pid == event.pid)
+                & (event.pid != 0)
+            )
+
             pt_where = torch.where(pt_mask)[0]
 
             inverse_mask = torch.zeros(pt_where.max() + 1).long()
@@ -146,29 +148,42 @@ def select_data(
                 event[true_edges], pt_where, inverse_mask
             )
 
+            # apply pt_mask on node features
             node_features = ["x", "hid", "pid", "pt", "nhits", "primary"]
             for feature in node_features:
                 if feature in event.keys:
                     event[feature] = event[feature][pt_mask]
-    
-    # Loop over all events
+
+    # Filter events based on signal pt, primary particles, nhits
     for event in events:
 
         event.signal_true_edges = event[true_edges]
         edge_subset = torch.ones(event.signal_true_edges.shape[1]).bool()
-        
+
         if "pt" in event.keys:
             edge_subset &= (event.pt[event[true_edges]] > pt_signal_cut).all(0)
-        
+
         if "primary" in event.keys:
             edge_subset &= (event.nhits[event[true_edges]] >= nhits_min).all(0)
-            
+
         if "nhits" in event.keys:
-            edge_subset &= ((event.primary[event[true_edges]].bool().all(0) | (not primary_only)))
-        
+            edge_subset &= event.primary[event[true_edges]].bool().all(0) | (
+                not primary_only
+            )
+
+        # get final true edges
         event.signal_true_edges = event.signal_true_edges[:, edge_subset]
 
     return events
+
+
+def get_edge_subset(edges, mask_where, inverse_mask):
+    """Filter edges based on a mask and also return the final edge mask."""
+    included_edges_mask = np.isin(edges, mask_where).all(0)
+    included_edges = edges[:, included_edges_mask]
+    included_edges = inverse_mask[included_edges]
+
+    return included_edges, included_edges_mask
 
 
 def reset_edge_id(subset, graph):
@@ -182,65 +197,16 @@ def reset_edge_id(subset, graph):
     return graph, exist_edges
 
 
-def graph_intersection(
-    pred_graph, truth_graph, using_weights=False, weights_bidir=None
-):
-
-    array_size = max(pred_graph.max().item(), truth_graph.max().item()) + 1
-
-    if torch.is_tensor(pred_graph):
-        l1 = pred_graph.cpu().numpy()
-    else:
-        l1 = pred_graph
-    if torch.is_tensor(truth_graph):
-        l2 = truth_graph.cpu().numpy()
-    else:
-        l2 = truth_graph
-    e_1 = sp.sparse.coo_matrix(
-        (np.ones(l1.shape[1]), l1), shape=(array_size, array_size)
-    ).tocsr()
-    e_2 = sp.sparse.coo_matrix(
-        (np.ones(l2.shape[1]), l2), shape=(array_size, array_size)
-    ).tocsr()
-    del l1
-
-    e_intersection = e_1.multiply(e_2) - ((e_1 - e_2) > 0)
-    del e_1
-    del e_2
-
-    if using_weights:
-        weights_list = weights_bidir.cpu().numpy()
-        weights_sparse = sp.sparse.coo_matrix(
-            (weights_list, l2), shape=(array_size, array_size)
-        ).tocsr()
-        del weights_list
-        del l2
-        new_weights = weights_sparse[e_intersection.astype("bool")]
-        del weights_sparse
-        new_weights = torch.from_numpy(np.array(new_weights)[0])
-
-    e_intersection = e_intersection.tocoo()
-    new_pred_graph = torch.from_numpy(
-        np.vstack([e_intersection.row, e_intersection.col])
-    ).long()  # .to(device)
-    y = torch.from_numpy(e_intersection.data > 0)  # .to(device)
-    del e_intersection
-
-    if using_weights:
-        return new_pred_graph, y, new_weights
-    else:
-        return new_pred_graph, y
-
-
+# ---------------------------- Graph Building ----------------------------
 def build_edges(
     query, database, indices=None, r_max=1.0, k_max=10, return_indices=False
 ):
+    """NOTE: The KNN/FRNN algorithms return the distances**2. Therefore, we need
+    to be careful when comparing them to the target distances (r_val, r_test),
+    and to the margin parameter (which is L1 distance).
     """
-    NOTE: These KNN/FRNN algorithms return the distances**2. Therefore we need 
-    to be careful when comparing them to the target distances (r_val, r_test), and 
-    to the margin parameter (which is L1 distance)
-    """
-    
+
+    # use FRNN library
     if FRNN_AVAILABLE:
 
         Dsq, I, nn, grid = frnn.frnn_grid_points(
@@ -259,14 +225,16 @@ def build_edges(
         ind = torch.Tensor.repeat(
             torch.arange(I.shape[0], device=device), (I.shape[1], 1), 1
         ).T.int()
+
         positive_idxs = I >= 0
         edge_list = torch.stack([ind[positive_idxs], I[positive_idxs]]).long()
 
+    # use FAISS library
     else:
 
         if device == "cuda":
             res = faiss.StandardGpuResources()
-            Dsq, I = faiss.knn_gpu(res, database, query, k_max)
+            Dsq, I = faiss.knn_gpu(res=res, xq=query, xb=database, k=k_max)
         elif device == "cpu":
             index = faiss.IndexFlatL2(database.shape[1])
             index.add(database)
@@ -291,11 +259,13 @@ def build_edges(
         return edge_list
 
 
-def build_knn(spatial, k):
+def build_knn(spatial, k_max):
+    """Build edges using kNN algorithm from FAISS library. One can also use
+    Scikit-learn for this purpose but its not optimized for GPUs."""
 
     if device == "cuda":
         res = faiss.StandardGpuResources()
-        _, I = faiss.knn_gpu(res, spatial, spatial, k_max)
+        _, I = faiss.knn_gpu(res=res, xq=spatial, xb=spatial, k=k_max)
     elif device == "cpu":
         index = faiss.IndexFlatL2(spatial.shape[1])
         index.add(spatial)
@@ -312,8 +282,70 @@ def build_knn(spatial, k):
     return edge_list
 
 
+def graph_intersection(
+    pred_graph, truth_graph, using_weights=False, weights_bidir=None
+):
+    """Graph Intersection to build Labelled Dataset ([edge_index, y])"""
+
+    array_size = max(pred_graph.max().item(), truth_graph.max().item()) + 1
+
+    if torch.is_tensor(pred_graph):
+        l1 = pred_graph.cpu().numpy()
+    else:
+        l1 = pred_graph
+
+    if torch.is_tensor(truth_graph):
+        l2 = truth_graph.cpu().numpy()
+    else:
+        l2 = truth_graph
+
+    e_1 = sp.sparse.coo_matrix(
+        (np.ones(l1.shape[1]), l1), shape=(array_size, array_size)
+    ).tocsr()
+
+    e_2 = sp.sparse.coo_matrix(
+        (np.ones(l2.shape[1]), l2), shape=(array_size, array_size)
+    ).tocsr()
+
+    del l1
+
+    e_intersection = e_1.multiply(e_2) - ((e_1 - e_2) > 0)
+    del e_1
+    del e_2
+
+    if using_weights:
+        weights_list = weights_bidir.cpu().numpy()
+        weights_sparse = sp.sparse.coo_matrix(
+            (weights_list, l2), shape=(array_size, array_size)
+        ).tocsr()
+
+        del weights_list
+        del l2
+
+        new_weights = weights_sparse[e_intersection.astype("bool")]
+        del weights_sparse
+        new_weights = torch.from_numpy(np.array(new_weights)[0])
+
+    e_intersection = e_intersection.tocoo()
+    new_pred_graph = torch.from_numpy(
+        np.vstack([e_intersection.row, e_intersection.col])
+    ).long()  # .to(device)
+
+    y = torch.from_numpy(e_intersection.data > 0)  # .to(device)
+
+    del e_intersection
+
+    if using_weights:
+        return new_pred_graph, y, new_weights
+    else:
+        return new_pred_graph, y
+
+
+# ---------------------------- Performance Evaluation ----------------------------
+
+
 def get_best_run(run_label, wandb_save_dir):
-    for (root_dir, dirs, files) in os.walk(wandb_save_dir + "/wandb"):
+    for root_dir, dirs, files in os.walk(wandb_save_dir + "/wandb"):
         if run_label in dirs:
             run_root = root_dir
 
@@ -324,9 +356,7 @@ def get_best_run(run_label, wandb_save_dir):
     return best_run_path
 
 
-# Performance Evaluation
 def embedding_model_evaluation(model, trainer, fom="eff", fixed_value=0.96):
-
     # Seed solver with one batch, then run on full test dataset
     sol = root(
         evaluate_set_root,
@@ -352,7 +382,6 @@ def evaluate_set_root(r, model, trainer, goal=0.96, fom="eff"):
 
 
 def get_metrics(test_results, model):
-
     ps = [len(result["truth"]) for result in test_results]
     ts = [result["truth_graph"].shape[1] for result in test_results]
     tps = [result["truth"].sum() for result in test_results]
@@ -367,7 +396,6 @@ def get_metrics(test_results, model):
 
 
 def evaluate_set_metrics(r_test, model, trainer):
-
     model.hparams.r_test = r_test
     test_results = trainer.test(ckpt_path=None)
 
@@ -378,7 +406,9 @@ def evaluate_set_metrics(r_test, model, trainer):
     return mean_efficiency, mean_purity
 
 
-# Model Creation
+# ---------------------------- Convenience Utilities ----------------------------
+
+
 def make_mlp(
     input_size,
     sizes,
@@ -390,23 +420,19 @@ def make_mlp(
     hidden_activation = getattr(nn, hidden_activation)
     if output_activation is not None:
         output_activation = getattr(nn, output_activation)
-    
     layers = []
     n_layers = len(sizes)
     sizes = [input_size] + sizes
-    
     # Hidden layers
     for i in range(n_layers - 1):
         layers.append(nn.Linear(sizes[i], sizes[i + 1]))
         if layer_norm:
             layers.append(nn.LayerNorm(sizes[i + 1]))
         layers.append(hidden_activation())
-        
     # Final layer
     layers.append(nn.Linear(sizes[-2], sizes[-1]))
     if output_activation is not None:
         if layer_norm:
             layers.append(nn.LayerNorm(sizes[-1]))
-        layers.append(output_activation())
-        
+        layers.append(output_activation)
     return nn.Sequential(*layers)

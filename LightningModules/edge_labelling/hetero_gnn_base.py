@@ -117,7 +117,7 @@ class HeteroGNNBase(LightningModule):
             truth_sample = truth_sample[direction_mask]
 
         return edge_sample, truth_sample, sample_indices
-    
+
     def training_step(self, batch, batch_idx):
 
         truth = batch[self.hparams["truth_key"]]
@@ -129,9 +129,15 @@ class HeteroGNNBase(LightningModule):
                 truth, batch.edge_index, self.hparams["train_purity"]
             )
         else:
-            edge_sample, truth_sample, sample_indices = batch.edge_index, truth, torch.arange(batch.edge_index.shape[1])
-            
-        edge_sample, truth_sample, sample_indices = self.handle_directed(batch, edge_sample, truth_sample, sample_indices)
+            edge_sample, truth_sample, sample_indices = (
+                batch.edge_index,
+                truth,
+                torch.arange(batch.edge_index.shape[1]),
+            )
+
+        edge_sample, truth_sample, sample_indices = self.handle_directed(
+            batch, edge_sample, truth_sample, sample_indices
+        )
 
         weight = (
             torch.tensor(self.hparams["weight"])
@@ -211,7 +217,7 @@ class HeteroGNNBase(LightningModule):
     def shared_evaluation(self, batch, batch_idx, log=True):
 
         truth = batch[self.hparams["truth_key"]]
-        
+
         if ("train_purity" in self.hparams.keys()) and (
             self.hparams["train_purity"] > 0
         ):
@@ -219,24 +225,33 @@ class HeteroGNNBase(LightningModule):
                 truth, batch.edge_index, self.hparams["train_purity"]
             )
         else:
-            edge_sample, truth_sample, sample_indices = batch.edge_index, truth, torch.arange(batch.edge_index.shape[1])
-            
-        edge_sample, truth_sample, sample_indices = self.handle_directed(batch, edge_sample, truth_sample, sample_indices)
+            edge_sample, truth_sample, sample_indices = (
+                batch.edge_index,
+                truth,
+                torch.arange(batch.edge_index.shape[1]),
+            )
+
+        edge_sample, truth_sample, sample_indices = self.handle_directed(
+            batch, edge_sample, truth_sample, sample_indices
+        )
 
         weight = (
             torch.tensor(self.hparams["weight"])
             if ("weight" in self.hparams)
             else torch.tensor((~truth_sample.bool()).sum() / truth_sample.sum())
         )
-        
+
         output = self(batch.x.float(), edge_sample, batch.volume_id).squeeze()
 
         if self.hparams["mask_background"]:
             y_subset = truth_sample | ~batch.y_pid[sample_indices].bool()
-            subset_output, subset_truth_sample = output[y_subset], truth_sample[y_subset]
+            subset_output, subset_truth_sample = (
+                output[y_subset],
+                truth_sample[y_subset],
+            )
             loss = F.binary_cross_entropy_with_logits(
                 subset_output, subset_truth_sample.float().squeeze(), pos_weight=weight
-            )            
+            )
         else:
             loss = F.binary_cross_entropy_with_logits(
                 output, truth_sample.float().squeeze(), pos_weight=weight
@@ -283,9 +298,7 @@ class HeteroGNNBase(LightningModule):
         if (self.hparams["warmup"] is not None) and (
             self.current_epoch < self.hparams["warmup"]
         ):
-            lr_scale = min(
-                1.0, float(self.current_epoch + 1) / self.hparams["warmup"]
-            )
+            lr_scale = min(1.0, float(self.current_epoch + 1) / self.hparams["warmup"])
             for pg in optimizer.param_groups:
                 pg["lr"] = lr_scale * self.hparams["lr"]
 
@@ -293,7 +306,7 @@ class HeteroGNNBase(LightningModule):
         optimizer.step(closure=optimizer_closure)
         optimizer.zero_grad()
 
-        
+
 class LargeGNNBase(HeteroGNNBase):
     def __init__(self, hparams):
         super().__init__(hparams)
@@ -302,13 +315,10 @@ class LargeGNNBase(HeteroGNNBase):
         # Handle any subset of [train, val, test] data split, assuming that ordering
 
         self.trainset, self.valset, self.testset = [
-            LargeDataset(
-                self.hparams["input_dir"],
-                subdir,
-                split,
-                self.hparams
+            LargeDataset(self.hparams["input_dir"], subdir, split, self.hparams)
+            for subdir, split in zip(
+                self.hparams["datatype_names"], self.hparams["datatype_split"]
             )
-            for subdir, split in zip(self.hparams["datatype_names"], self.hparams["datatype_split"])
         ]
 
         if (

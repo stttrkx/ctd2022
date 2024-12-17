@@ -48,7 +48,7 @@ def get_tracks(graph, weights, hit_ids, weight_cutoff):
                     if next_hit_id != idx and next_hit_id not in hits_idx_in_tracks:
                         hits_in_tracks.append(hit_ids[next_hit_id])
                         hits_idx_in_tracks.append(next_hit_id)
-                        a_track       .append(hit_ids[next_hit_id])
+                        a_track.append(hit_ids[next_hit_id])
                         idx = next_hit_id
                         has_next_hit = True
                         break
@@ -65,15 +65,13 @@ def longest_track(G, node, used_nodes, th, feature_name):
     pass
 
 
-def get_tracks2(G, th=0.5, feature_name='solution'):
+def get_tracks2(G, th=0.5, feature_name="solution"):
     used_nodes = []
     sub_graphs = []
     for node in G.nodes():
         if node in used_nodes:
             continue
-        a_track = longest_track(
-            G, node,
-            used_nodes, th=th, feature_name=feature_name)
+        a_track = longest_track(G, node, used_nodes, th=th, feature_name=feature_name)
         if len(a_track) < 1:
             used_nodes.append(node)
             continue
