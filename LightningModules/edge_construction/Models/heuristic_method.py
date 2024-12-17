@@ -14,6 +14,7 @@ from ..utils.root_file_reader import ROOTFileReader
 # TODO: Idea is to use a Heuristic Method for graph construction. Currently, this
 # is done in prepare_event() in data_processing since is easy to implement there.
 
+
 class HeuristicMethod(HeuristicBase):
     """
     Processing model to convert STT data into files ready for GNN training
@@ -78,4 +79,3 @@ class HeuristicMethod(HeuristicBase):
         print(
             f"Feature construction complete. Time taken: {end_time - start_time:f} seconds."
         )
-

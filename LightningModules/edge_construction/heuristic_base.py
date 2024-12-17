@@ -8,6 +8,7 @@ from pytorch_lightning import LightningDataModule
 # TODO: Idea is to use a Heuristic Method for graph construction. Currently, this
 # is done in prepare_event() in data_processing since is easy to implement there.
 
+
 class HeuristicBase(LightningDataModule):
 
     def __init__(self, hparams):
