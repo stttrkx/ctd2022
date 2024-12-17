@@ -13,16 +13,19 @@ from pytorch_lightning.loggers import TensorBoardLogger
 from ray import air, tune
 from ray.tune import CLIReporter
 from ray.tune.schedulers import ASHAScheduler
-from ray.tune.integration.pytorch_lightning import TuneReportCallback, TuneReportCheckpointCallback
+from ray.tune.integration.pytorch_lightning import (
+    TuneReportCallback,
+    TuneReportCheckpointCallback,
+)
 from LightningModules.DNN.Models.tune_network import EdgeClassifier_Tune
 
-device = 'cuda' if torch.cuda.is_available() else 'cpu'
+device = "cuda" if torch.cuda.is_available() else "cpu"
 pp = pprint.PrettyPrinter(indent=2)
 
 
 def headline(message):
     buffer_len = (80 - len(message)) // 2 if len(message) < 80 else 0
-    return "-" * buffer_len + ' ' + message + ' ' + '-' * buffer_len
+    return "-" * buffer_len + " " + message + " " + "-" * buffer_len
 
 
 # Argument Parser
@@ -53,20 +56,15 @@ def trainer_dense(combo_config, num_epochs=10, num_gpus=1):
     save_directory = common_configs["artifact_directory"]
     experiment_dir = common_configs["experiment_name"]
     os.makedirs(experiment_dir, exist_ok=True)
-    
-    logger = TensorBoardLogger(save_directory,
-                               name=experiment_dir,
-                               version=None)
+
+    logger = TensorBoardLogger(save_directory, name=experiment_dir, version=None)
 
     metrics = {"loss": "ptl/val_loss", "mean_accuracy": "ptl/val_accuracy"}
     callbacks = [
-        TuneReportCallback(metrics,
-                           on="validation_end"
-                           ),
-        TuneReportCheckpointCallback(metrics,
-                                     filename="checkpoint",
-                                     on="validation_end"
-                                     )
+        TuneReportCallback(metrics, on="validation_end"),
+        TuneReportCheckpointCallback(
+            metrics, filename="checkpoint", on="validation_end"
+        ),
     ]
 
     # Build Trainer
@@ -75,7 +73,7 @@ def trainer_dense(combo_config, num_epochs=10, num_gpus=1):
         "max_epochs": num_epochs,
         "logger": logger,
         "enable_progress_bar": False,
-        "callbacks": callbacks
+        "callbacks": callbacks,
     }
 
     trainer = Trainer(**kwargs)
@@ -84,18 +82,23 @@ def trainer_dense(combo_config, num_epochs=10, num_gpus=1):
     trainer.fit(model)
 
 
-# Tuner :: ASHA Scheduler 
-def tuner_asha(config_file="pipeline_config.yaml", num_samples=10, num_epochs=10, cpus_per_trial=1, gpus_per_trial=1):
-    
+# Tuner :: ASHA Scheduler
+def tuner_asha(
+    config_file="pipeline_config.yaml",
+    num_samples=10,
+    num_epochs=10,
+    cpus_per_trial=1,
+    gpus_per_trial=1,
+):
+
     # (0) Model Config
     with open(config_file) as file:
         model_config = yaml.load(file, Loader=yaml.FullLoader)
 
     # (1) Trainable
-    trainable_w_param = tune.with_parameters(trainer_dense,
-                                             num_epochs=num_epochs,
-                                             num_gpus=gpus_per_trial
-                                             )
+    trainable_w_param = tune.with_parameters(
+        trainer_dense, num_epochs=num_epochs, num_gpus=gpus_per_trial
+    )
     resources_per_trial = {"cpu": cpus_per_trial, "gpu": gpus_per_trial}
 
     # (2) Param Space
@@ -104,42 +107,38 @@ def tuner_asha(config_file="pipeline_config.yaml", num_samples=10, num_epochs=10
         "l2_size": tune.choice([128, 256, 512, 1024]),
         "l3_size": tune.choice([128, 256, 512, 1024]),
         "l4_size": tune.choice([128, 256, 512, 1024]),
-        #"l5_size": tune.choice([128, 256, 512, 1024]),
-        "batch_size": tune.choice([64, 128, 256])
+        # "l5_size": tune.choice([128, 256, 512, 1024]),
+        "batch_size": tune.choice([64, 128, 256]),
     }
 
-    # Combo Config   
+    # Combo Config
     # combine using unpacking operator '**', similar to update() but return a dict
-    # combo_config = {**model_config,**tune_config}  
+    # combo_config = {**model_config,**tune_config}
     # combine using dictionary comprehension
     combo_config = {k: v for d in (model_config, tune_config) for k, v in d.items()}
 
     # (3) Tune Config
     scheduler = ASHAScheduler(  # ASHA Trial Schedular
-        max_t=num_epochs,
-        grace_period=1,
-        reduction_factor=2)
+        max_t=num_epochs, grace_period=1, reduction_factor=2
+    )
 
     # (4) Run Config
 
     reporter = CLIReporter(  # CLIReporter Callback
-        parameter_columns=["l1_size",
-                           "l2_size",
-                           "l3_size",
-                           "l4_size",
-                           #"l5_size",
-                           "batch_size"],
-        metric_columns=["loss",
-                        "mean_accuracy",
-                        "training_iteration"]
+        parameter_columns=[
+            "l1_size",
+            "l2_size",
+            "l3_size",
+            "l4_size",
+            # "l5_size",
+            "batch_size",
+        ],
+        metric_columns=["loss", "mean_accuracy", "training_iteration"],
     )
 
     # (5) Init Tuner
     tuner = tune.Tuner(
-        trainable=tune.with_resources(
-            trainable_w_param,
-            resources=resources_per_trial
-        ),
+        trainable=tune.with_resources(trainable_w_param, resources=resources_per_trial),
         param_space=combo_config,
         tune_config=tune.TuneConfig(
             metric="loss",
@@ -153,8 +152,8 @@ def tuner_asha(config_file="pipeline_config.yaml", num_samples=10, num_epochs=10
             name="ASHResult",
             progress_reporter=reporter,
             # log_to_file=True,
-            log_to_file=("my_stdout.log", "my_stderr.log")
-        )
+            log_to_file=("my_stdout.log", "my_stderr.log"),
+        ),
     )
 
     # (6) Fit Tuner
@@ -168,13 +167,16 @@ def tuner_asha(config_file="pipeline_config.yaml", num_samples=10, num_epochs=10
 
         print(
             f"Trial #{i} finished successfully with a mean accuracy metric of:",
-            result.metrics["mean_accuracy"]
+            result.metrics["mean_accuracy"],
         )
 
     # (8) Print Best Hyperparameters
     best_result = result_grid.get_best_result()
     print("\nBest Result: ", result_grid.get_best_result(metric="loss", mode="min"))
-    print("\nWorst Result: ", result_grid.get_best_result(metric="mean_accuracy", mode="min"))
+    print(
+        "\nWorst Result: ",
+        result_grid.get_best_result(metric="mean_accuracy", mode="min"),
+    )
     print("\nBest Result Hyperprameters: ", best_result.config)
     print("\nBest Result Directory : ", best_result.log_dir)
     print("\nBest Result Meterics : ", best_result.metrics)
@@ -183,10 +185,13 @@ def tuner_asha(config_file="pipeline_config.yaml", num_samples=10, num_epochs=10
 if __name__ == "__main__":
     args = parse_args()
     config = args.config
-    
+
     if args.smoke_test:
         print("Running Smoke Test...")
-        tuner_asha(config, num_samples=1, num_epochs=2, cpus_per_trial=1, gpus_per_trial=0)
+        tuner_asha(
+            config, num_samples=1, num_epochs=2, cpus_per_trial=1, gpus_per_trial=0
+        )
     else:
-        tuner_asha(config, num_samples=10, num_epochs=10, cpus_per_trial=32, gpus_per_trial=1)
-
+        tuner_asha(
+            config, num_samples=10, num_epochs=10, cpus_per_trial=32, gpus_per_trial=1
+        )

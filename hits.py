@@ -10,10 +10,11 @@ import torch
 
 
 import ROOT
-%jsroot on
+
+# %jsroot on
 
 
-inputdir='./run_all/fwp_feature_store'
+inputdir = "./run_all/fwp_feature_store"
 proc_files = sorted(glob.glob(os.path.join(inputdir, "*")))
 
 
@@ -26,33 +27,24 @@ i = 0
 # Loop over events
 print("     Total Files:", len(proc_files))
 for f in proc_files[1000]:
-    i = i+1
-    if i != 0 and i%1000 == 0:
+    i = i + 1
+    if i != 0 and i % 1000 == 0:
         print("Processed Events:", i)
-    
+
     # load event
-    feature_data = torch.load(f, map_location='cpu')
+    feature_data = torch.load(f, map_location="cpu")
     nhits = feature_data.hid.size(0)
-    
+
     # fill hist
     h1.Fill(nhits)
 
 
 # PyROOT: TCanvas
-can = ROOT.TCanvas("can","",600,500)
-can.cd();
-h1.GetXaxis().SetTitleOffset(1.5);
-h1.Draw();
+can = ROOT.TCanvas("can", "", 600, 500)
+can.cd()
+h1.GetXaxis().SetTitleOffset(1.5)
+h1.Draw()
 can.Draw()
 can.SaveAs("hits.pdf")
 can.SaveAs("hits.C")
 can.Close()
-
-
-
-
-
-
-
-
-
