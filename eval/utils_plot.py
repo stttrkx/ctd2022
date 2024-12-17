@@ -141,7 +141,7 @@ def make_cmp_plot(
     # atl.ATLAS = "PANDA"
     # atl.monkeypatch_axis_labels()
     atl.atlasify(
-        "Internal",
+        "Simulation",
         badgetext,  # Subtext
         font_size=18,  # Main Badge
         label_font_size=18,  # Text After Badge
@@ -209,7 +209,7 @@ def make_cmp_plot(
     # atl.ATLAS = "PANDA"
     # atl.monkeypatch_axis_labels()
     atl.atlasify(
-        "Internal",
+        "Simulation",
         badgetext,  # Subtext
         font_size=18,  # Main Badge
         label_font_size=18,  # Text After Badge
