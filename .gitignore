@@ -66,5 +66,6 @@ __pycache__
 lightning_*
 data_all
 run_all
+run
 
 
