@@ -195,6 +195,18 @@ class PandaRootFeatureStore(FeatureStoreBase):
             "/home/nikin105/mlProject/data/detectorGeometries/tubePos.csv"
         )
 
+        # Create a pandas data frame to save some event wise meta information
+        event_info_df = pd.DataFrame(
+            columns=[
+                "event_id",
+                "n_true_edges",
+                "n_input_edges",
+                "n_true_input_edges",
+                "n_false_input_edges",
+            ],
+            dtype=int,
+        )
+
         # Read the signal signature from the YAML file.
         with open(self.hparams["signal_signature_file"], "r") as file:
             signal_signature = yaml.safe_load(file)
@@ -344,10 +356,17 @@ class PandaRootFeatureStore(FeatureStoreBase):
                 )
 
                 # Execute the process_func in parallel for each event
-                # with ThreadPoolExecutor(max_workers=self.n_workers) as executor:
-                #     executor.map(process_func, chunk.itertuples())
-                for i in chunk.itertuples():
-                    process_func(i)
+                with ThreadPoolExecutor(max_workers=self.n_workers) as executor:
+                    event_info_df = pd.concat(
+                        [
+                            event_info_df,
+                            pd.DataFrame(
+                                list(executor.map(process_func, chunk.itertuples())),
+                                columns=event_info_df.columns,
+                            ),
+                        ],
+                        ignore_index=True,
+                    )
 
                 # Close the progress bar
                 progress_bar.close()
@@ -363,4 +382,36 @@ class PandaRootFeatureStore(FeatureStoreBase):
         end_time = time()
         print(
             f"Feature construction complete. Time taken: {end_time - start_time:f} seconds."
+        )
+
+        # Print some information about the edge construction
+        n_true_edges = event_info_df["n_true_edges"].sum()
+        n_input_edges = event_info_df["n_input_edges"].sum()
+        n_true_input_edges = event_info_df["n_true_input_edges"].sum()
+        n_false_input_edges = event_info_df["n_false_input_edges"].sum()
+        n_missing_true_edges = n_true_edges - n_true_input_edges
+
+        print("Total class imbalance:")
+        print(f"Percentage of true edges: {n_true_edges/n_input_edges*100:.2f}%")
+        print(
+            f"Percentage of false edges: {n_false_input_edges/n_input_edges*100:.2f}%"
+        )
+
+        if n_missing_true_edges > 0:
+            print(f"Total number of missing true edges: {n_missing_true_edges}")
+            print(
+                f"Total input edge construction efficiency: {n_true_input_edges/n_true_edges*100:.2f}%"
+            )
+            event_info_df["missing_true_edges"] = (
+                event_info_df["n_true_edges"] - event_info_df["n_true_input_edges"]
+            )
+            print(
+                f"Event with the most missing edges: {event_info_df['event_id'].iloc[event_info_df['missing_true_edges'].idxmax()]}"
+            )
+
+        # Save the event information to a HDF5 file
+        event_info_df.to_hdf(
+            os.path.join(self.output_dir, "event_info.h5"),
+            key="event_info_df",
+            mode="w",
         )

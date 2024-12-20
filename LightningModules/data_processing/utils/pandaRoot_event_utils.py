@@ -6,7 +6,7 @@ import pandas as pd
 
 from tqdm import tqdm
 from torch_geometric.data import Data
-from .heuristic_utils import get_all_edges, graph_intersection
+from .heuristic_utils import get_all_edges, graph_intersection, get_layerwise_graph
 from .event_utils import get_time_ordered_true_edges
 from .particle_utils import is_signal_particle, get_process_ids, get_all_mother_ids
 
@@ -191,11 +191,11 @@ def prepare_event(
     output_dir: str,
     progress_bar: tqdm,
     overwrite: bool,
+    input_edge_method: str,
     **kwargs,
-) -> None:
+) -> list:
     """
-    Main function that manages the processing of a event from the input ROOT files, constructing of true
-    and input edges and saving the processed data into a PyTorch file.
+    _summary_
 
     Args:
         event (pd.Series): Pandas Series containing the event information.
@@ -205,6 +205,10 @@ def prepare_event(
         output_dir (str): Directory where the PyTorch files will be saved.
         progress_bar (tqdm): Progress bar object to track the processing of the events.
         overwrite (bool): Flag to overwrite the PyTorch files if they already exist.
+        input_edge_method (str): Method to construct the input edges. Can be "all" or "layerwise".
+
+    Returns:
+        list: Meta information of the event (currently mostly number of true/false edges).
     """
 
     # Convert the tuple to a dictionary.
@@ -214,7 +218,7 @@ def prepare_event(
     event_id = event["event_id"]
 
     # Prepare the output filename and check if it already exists.
-    output_filename = f"{output_dir}/event_{event_id}.pt"
+    output_filename = f"{output_dir}/{event_id}"
     if not os.path.exists(output_filename) or overwrite:
         logging.info(f"Writing into {output_filename}")
     else:
@@ -246,6 +250,10 @@ def prepare_event(
 
     processed_df = processed_df.assign(event_id=event_id)
 
+    # Redefine the hit ids and the index to be continuous after the cut hits.
+    processed_df = processed_df.reset_index(drop=True)
+    processed_df["hit_id"] = np.arange(len(processed_df))
+
     # Get the true edges using the true time order of the hits
     true_edges = get_time_ordered_true_edges(processed_df)
     logging.info(
@@ -253,10 +261,21 @@ def prepare_event(
     )
 
     # Build input edges by connecting all hits to all other hits.
-    input_edges = get_all_edges(processed_df)
-    logging.info(f"Input graph built for {event_id} with size {input_edges.shape}")
+    if input_edge_method == "all":
+        input_edges = get_all_edges(processed_df)
+    elif input_edge_method == "layerwise":
+        input_edges = get_layerwise_graph(
+            processed_df,
+            filtering=kwargs["filtering"],
+            inneredges=kwargs["inneredges"],
+            directional=kwargs["directional"],
+        )
 
-    # feature scale for X=[r,phi,z]
+    logging.info(
+        f"Input graph built with method {input_edge_method} for {event_id} with size {input_edges.shape}"
+    )
+
+    # feature scale for X=[r,phi,isochrone] (basically a normalization for the input features)
     feature_scale = [100, np.pi, 100]
 
     # Build the PyTorch Geometric (PyG) 'Data' object
@@ -281,6 +300,9 @@ def prepare_event(
     input_edges = torch.from_numpy(input_edges)
     true_edges = data.true_edges
 
+    # Divide the number of true edges by 2 to get the "real" number of true edges because they are bidirectional
+    logging.info(f"Number of true edges: {int(true_edges.shape[1] / 2)}")
+
     # Label the input edges, and reorganizes the order of the edges to fit the labels
     new_input_edges, y = graph_intersection(input_edges, true_edges)
 
@@ -288,9 +310,25 @@ def prepare_event(
     data.edge_index = new_input_edges
     data.y_pid = y
 
+    logging.info(f"Number of input edges: {new_input_edges.shape[1]}")
+    logging.info(f"Number of true input edges: {y[y==True].shape[0]}")
+    logging.info(f"Number of false input edges: {y[y==False].shape[0]}")
+
     # Save the data object to a PyTorch file
     with open(output_filename, "wb") as output_file:
         torch.save(data, output_file)
 
     # Update the progress bar
     progress_bar.update(n=1)
+
+    # Return some meta information of the event
+    return np.array(
+        [
+            event_id,
+            int(true_edges.shape[1] / 2),
+            new_input_edges.shape[1],
+            y[y == True].shape[0],
+            y[y == False].shape[0],
+        ],
+        dtype=int,
+    )
