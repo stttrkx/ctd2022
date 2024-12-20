@@ -91,34 +91,33 @@ def select_data(events, pt_background_cut, pt_signal_cut, noise):
     # NOTE: Cutting background by pT BY DEFINITION removes noise
     if (pt_background_cut > 0) or not noise:
         for event in events:
-
             edge_mask = (
                 (event.pt[event.edge_index] > pt_background_cut)
                 & (event.pid[event.edge_index] == event.pid[event.edge_index])
-                & (event.pid[event.edge_index] != 0)
+                & (event.primary[event.edge_index])
             ).all(0)
 
             # Apply Mask on "edge_index, y, weights, y_pid"
             event.edge_index = event.edge_index[:, edge_mask]
 
-            if "y" in event.__dict__.keys():
+            if "y" in event.to_dict().keys():
                 event.y = event.y[edge_mask]
 
-            if "weights" in event.__dict__.keys():
+            if "weights" in event.to_dict().keys():
                 if event.weights.shape[0] == edge_mask.shape[0]:
                     event.weights = event.weights[edge_mask]
 
-            if "y_pid" in event.__dict__.keys():
+            if "y_pid" in event.to_dict().keys():
                 event.y_pid = event.y_pid[edge_mask]
 
     for event in events:
-        if "y_pid" not in event.__dict__.keys():
+        if "y_pid" not in event.to_dict().keys():
             event.y_pid = (
                 event.pid[event.edge_index[0]] == event.pid[event.edge_index[1]]
             ) & event.pid[event.edge_index[0]].bool()
 
         if (
-            "signal_true_edges" in event.__dict__.keys()
+            "signal_true_edges" in event.to_dict().keys()
             and event.signal_true_edges is not None
         ):
             signal_mask = (event.pt[event.signal_true_edges] > pt_signal_cut).all(0)
