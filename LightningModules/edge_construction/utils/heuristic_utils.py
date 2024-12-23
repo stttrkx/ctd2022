@@ -41,15 +41,17 @@ def get_all_edges(hits):
 # Construction Graph based on a Heuristic
 def construct_graphs(hits, hm="layerwise_hm", adjacent_sectors=True, directional=True):
     """Top-level method to construct graph usig a heuristic method"""
-    
-    if hm == "layerwise_hm"
+
+    if hm == "layerwise_hm":
         input_edges = construct_layerwise_edges(hits, adjacent_sectors=True)
-    elif hm == "modulewise_hm"
-        input_edges = construct_modulewise_graph(hits, adjacent_sectors=True, directional=True)
+    elif hm == "modulewise_hm":
+        input_edges = construct_modulewise_graph(
+            hits, adjacent_sectors=True, directional=True
+        )
     else:
         logging.error(f"{hm} is not a valid method to build input graphs.")
         exit(1)
-        
+
     # concatenate and transform
     input_edges = pd.concat(input_edges, axis=0).to_numpy().T
     return input_edges
@@ -108,6 +110,7 @@ def construct_layerwise_edges(hits, adjacent_sectors=True):
         layerwise_edges.append(segments)
 
     return layerwise_edges
+
 
 # Modulewise Heuristic Method:
 def construct_samelayer_edges(hits, directional=True):
@@ -174,7 +177,7 @@ def construct_modulewise_graph(hits, adjacent_sectors=True, directional=True):
     layerwise_edges = construct_layerwise_edges(hits, adjacent_sectors)
     samelayer_edges = construct_samelayer_edges(hits, directional)
     modulewise_edges = itertools.chain(layerwise_edges, samelayer_edges)
-    
+
     return modulewise_edges
 
 

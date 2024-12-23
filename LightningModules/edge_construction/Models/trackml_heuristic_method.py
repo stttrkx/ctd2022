@@ -37,11 +37,11 @@ class HeuristicMethod(HeuristicBase):
         os.makedirs(self.output_dir, exist_ok=True)
 
         logging.info("Using the TrackMLFeatureStore to process data from CSV files.")
-        
+
         # TODO: Use loading functions of embedding_utils. Idea is to fetch n_files
         # split it into train_split and then construct graph and finally store it
         # into train, val and test directories using the train_split
-        
+
         # Find the input files
         all_files = os.listdir(self.input_dir)
         all_events = sorted(
@@ -53,7 +53,7 @@ class HeuristicMethod(HeuristicBase):
 
         # Process input files with a worker pool and progress bar
         # Use process_map() from tqdm instead of mp.Pool from multiprocessing.
-        process_func = partial(prepare_layerwise_graph, **self.hparams)
+        process_func = partial(construct_graphs, **self.hparams)
         process_map(
             process_func,
             all_events,

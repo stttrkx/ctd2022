@@ -31,7 +31,7 @@ class HeuristicBase(LightningDataModule):
             if "n_workers" in self.hparams
             else len(os.sched_getaffinity(0))
         )
-        
+
         # FIXME: Not needed
         self.build_weights = (
             self.hparams["build_weights"] if "build_weights" in self.hparams else True
