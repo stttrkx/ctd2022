@@ -38,8 +38,25 @@ def get_all_edges(hits):
     return input_graph
 
 
-# Layerwise Heuristic with/without Samelayer Edges
-def construct_layerwise_edges(hits, filtering=True):
+# Construction Graph based on a Heuristic
+def construct_graphs(hits, hm="layerwise_hm", adjacent_sectors=True, directional=True):
+    """Top-level method to construct graph usig a heuristic method"""
+    
+    if hm == "layerwise_hm"
+        input_edges = construct_layerwise_edges(hits, adjacent_sectors=True)
+    elif hm == "modulewise_hm"
+        input_edges = construct_modulewise_graph(hits, adjacent_sectors=True, directional=True)
+    else:
+        logging.error(f"{hm} is not a valid method to build input graphs.")
+        exit(1)
+        
+    # concatenate and transform
+    input_edges = pd.concat(input_edges, axis=0).to_numpy().T
+    return input_edges
+
+
+# Layerwise Heuristic Method:
+def construct_layerwise_edges(hits, adjacent_sectors=True):
     """
     Construct input edges (graph) in adjacent layers & sectors of the detector.
 
@@ -47,7 +64,7 @@ def construct_layerwise_edges(hits, filtering=True):
     ----------
     hits : pd.DataFrame
         hits information
-    filtering : bool, optional
+    sector_mask : bool, optional
         if True, edge construction constrained in adjacent sectors
         if False, do not require any sector constraint
     """
@@ -80,7 +97,7 @@ def construct_layerwise_edges(hits, filtering=True):
         )
 
         # construct edges with/without sector constraint
-        if filtering:
+        if adjacent_sectors:
             dSector = hit_pairs["sector_id_1"] - hit_pairs["sector_id_2"]
             sector_mask = (dSector.abs() < 2) | (dSector.abs() == 5)
             segments = hit_pairs[["index_1", "index_2"]][sector_mask]
@@ -92,7 +109,7 @@ def construct_layerwise_edges(hits, filtering=True):
 
     return layerwise_edges
 
-
+# Modulewise Heuristic Method:
 def construct_samelayer_edges(hits, directional=True):
     """
     Construct input edges (graph) between adjacent hits in the same layer of the detector.
@@ -134,7 +151,7 @@ def construct_samelayer_edges(hits, directional=True):
     return samelayer_edges
 
 
-def get_layerwise_graph(hits, filtering=True, inneredges=True, directional=True):
+def construct_modulewise_graph(hits, adjacent_sectors=True, directional=True):
     """
     Get input graph (edges) in adjacent layers and sectors with or without inner edges.
 
@@ -142,7 +159,7 @@ def get_layerwise_graph(hits, filtering=True, inneredges=True, directional=True)
     ----------
     hits : pd.DataFrame
         hits information
-    filtering : bool, optional
+    sector_mask : bool, optional
         if True, edge construction in adjacent sectors
         if False, do not require any sector constraint
     inneredges : bool, optional
@@ -154,16 +171,11 @@ def get_layerwise_graph(hits, filtering=True, inneredges=True, directional=True)
     """
 
     # construct graph
-    if inneredges is not True:
-        input_edges = construct_layerwise_edges(hits, filtering)
-    else:
-        layerwise_edges = construct_layerwise_edges(hits, filtering)
-        samelayer_edges = construct_samelayer_edges(hits, directional)
-        input_edges = itertools.chain(layerwise_edges, samelayer_edges)
-
-    # concatenate and transform
-    input_graph = pd.concat(input_edges, axis=0).to_numpy().T
-    return input_graph
+    layerwise_edges = construct_layerwise_edges(hits, adjacent_sectors)
+    samelayer_edges = construct_samelayer_edges(hits, directional)
+    modulewise_edges = itertools.chain(layerwise_edges, samelayer_edges)
+    
+    return modulewise_edges
 
 
 # Graph Intersection to build Labelled Dataset ([edge_index, y])

@@ -6,10 +6,8 @@ from time import time
 from functools import partial
 from tqdm.contrib.concurrent import process_map
 
-from ..feature_store_base import FeatureStoreBase
-from ..utils.trackml_event_utils import prepare_event as trackml_prepare_event
-from ..utils.panda_event_utils import prepare_event as panda_prepare_event
-from ..utils.root_file_reader import ROOTFileReader
+from ..heuristic_base import HeuristicBase
+from ..utils.heuristic_utils import construct_graphs
 
 # TODO: Idea is to use a Heuristic Method for graph construction. Currently, this
 # is done in prepare_event() in data_processing since is easy to implement there.
@@ -17,35 +15,20 @@ from ..utils.root_file_reader import ROOTFileReader
 
 class HeuristicMethod(HeuristicBase):
     """
-    Processing model to convert STT data into files ready for GNN training
-
-    Description:
-        This class is used to read data from csv files containing PANDA STT hit and MC truth information.
-        This information is then used to create true and input graphs and saved in PyTorch geometry files.
-        It is a subclass of FeatureStoreBase which in turn is a subclass of the PyTorch Lighting's LightningDataModule.
+    Heuristic method for graph construction, we need raw events (CSVs) to build
+    graphs (layerwise, all_edges) that work on dataframes. We also need output
+    of data_processing where we need to add constructed graph. Finally, we store
+    data into output_dir withou splitting, once it works we will split data and
+    store it into train, val and test folders (we split by hand in the past).
     """
 
     def __init__(self, hparams: dict):
-        """
-        Initializes the TrackMLFeatureStore class.
-
-        Args:
-            hparams (dict): Dictionary containing the hyperparameters for the feature construction / data processing
-        """
-
-        # Call the base class (FeatureStoreBase in feature_store_base.py) constructor with the hyperparameters as arguments
         super().__init__(hparams)
 
         # self.detector_path = self.hparams["detector_path"]
 
     def prepare_data(self):
-        """
-        Main function for the feature construction / data processing.
-
-        Description:
-            Parallelizes the processing of input files by splitting them into
-            evenly sized chunks and processing each chunk in parallel.
-        """
+        """Preparing dataset"""
 
         start_time = time()
 
@@ -54,7 +37,11 @@ class HeuristicMethod(HeuristicBase):
         os.makedirs(self.output_dir, exist_ok=True)
 
         logging.info("Using the TrackMLFeatureStore to process data from CSV files.")
-
+        
+        # TODO: Use loading functions of embedding_utils. Idea is to fetch n_files
+        # split it into train_split and then construct graph and finally store it
+        # into train, val and test directories using the train_split
+        
         # Find the input files
         all_files = os.listdir(self.input_dir)
         all_events = sorted(
@@ -66,7 +53,7 @@ class HeuristicMethod(HeuristicBase):
 
         # Process input files with a worker pool and progress bar
         # Use process_map() from tqdm instead of mp.Pool from multiprocessing.
-        process_func = partial(trackml_prepare_event, **self.hparams)
+        process_func = partial(prepare_layerwise_graph, **self.hparams)
         process_map(
             process_func,
             all_events,

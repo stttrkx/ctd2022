@@ -22,17 +22,17 @@ class HeuristicBase(LightningDataModule):
         self.input_dir = self.hparams["input_dir"]
         self.output_dir = self.hparams["output_dir"]
         self.n_files = self.hparams["n_files"]
-        self.skewed = self.hparams["skewed"]
         self.chunksize = self.hparams["chunksize"]
-        self.n_tasks = self.hparams["n_tasks"]
 
         # Set defaults for optional hyperparameters
-        self.task = self.hparams["task"] if "task" in self.hparams else 0
+        self.n_tasks = self.hparams["n_tasks"] if "n_tasks" in self.hparams else 0
         self.n_workers = (
             self.hparams["n_workers"]
             if "n_workers" in self.hparams
             else len(os.sched_getaffinity(0))
         )
+        
+        # FIXME: Not needed
         self.build_weights = (
             self.hparams["build_weights"] if "build_weights" in self.hparams else True
         )

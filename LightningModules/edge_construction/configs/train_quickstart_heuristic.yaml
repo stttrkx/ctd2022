@@ -1,0 +1,24 @@
+# # I/O Configuration
+input_dir: ${EXATRKX_DATA}/run/data_processing
+output_dir: ${EXATRKX_DATA}/run/graph_construction
+
+n_files: 10000                           # data size
+train_split: [[8000, 1000, 1000]]        # data split
+n_workers: 4
+n_tasks: 1
+overwrite: True
+chunksize: 1
+
+# Data Features
+noise: False                             # handle noise???
+pt_signal_cut: .0                        # pt cut on signal
+pt_background_cut: .0                    # pt cut on background
+true_edges: orderwise_true_edges         # during data loading becomes signal_true_edges
+
+
+# Graph Features
+layerwise_hm: True                       # layerwise heuristic method
+adjacent_sectors: False                  # graphs construction in adjacet sectors
+modulewise_hm: False                     # modulewise heuristic method
+directional: Falase                      # modulewise hm need extra prameter
+
