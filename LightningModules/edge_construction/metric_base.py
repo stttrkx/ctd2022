@@ -33,28 +33,40 @@ class MetricBase(LightningModule):
         super().__init__()
         """The LightningModule to scan over different embedding training regimes"""
 
-        # Save hyperparameters
-        self.save_hyperparameters(hparams)
-
-        # Set workers from hparams
+        # Handle Workers
         self.n_workers = (
             self.hparams["n_workers"]
             if "n_workers" in self.hparams
             else len(os.sched_getaffinity(0))
         )
 
-        # Instance Variables
+        # Handle Datasets
         self.trainset, self.valset, self.testset = None, None, None
 
-        # Loss Function
-        self.hparams["loss_function"] = hparams.get("loss_function", "hinge")
+        # Handle Model
+        in_channels = hparams["spatial_channels"]
+        self.network = make_mlp(
+            in_channels,
+            [hparams["emb_hidden"]] * hparams["nb_layer"] + [hparams["emb_dim"]],
+            hidden_activation=hparams["activation"],
+            output_activation=None,
+            layer_norm=True,
+        )
 
+        # Save hyperparameters
+        self.save_hyperparameters(hparams)
+
+    def forward(self, x):
+        x_out = self.network(x)
+        return F.normalize(x_out)
+
+    # Load Data
     def setup(self, stage: Optional[str] = "fit") -> None:
         self.trainset, self.valset, self.testset = split_datasets(**self.hparams)
 
-    # Training DataLoader
+    # DataLoader Hooks
     def train_dataloader(self) -> Optional[DataLoader]:
-        """Get the training dataloader"""
+        """Training DataLoader Hook"""
         if self.trainset is not None:
             return DataLoader(
                 self.trainset,
@@ -65,9 +77,8 @@ class MetricBase(LightningModule):
         else:
             return None
 
-    # Validation DataLoader
     def val_dataloader(self) -> Optional[DataLoader]:
-        """Get the validation dataloader"""
+        """Validation DataLoader Hook"""
         if self.valset is not None:
             return DataLoader(
                 self.valset,
@@ -78,9 +89,8 @@ class MetricBase(LightningModule):
         else:
             return None
 
-    # Test DataLoader
     def test_dataloader(self) -> Optional[DataLoader]:
-        """Get the test dataloader"""
+        """Test DataLoader Hook"""
         if self.testset is not None:
             return DataLoader(
                 self.testset,
@@ -91,11 +101,16 @@ class MetricBase(LightningModule):
         else:
             return None
 
+    def predict_dataloader(self) -> Optional[DataLoader]:
+        """Predict DataLoader Hook"""
+        return [
+            self.train_dataloader(),
+            self.val_dataloader(),
+            self.test_dataloader(),
+        ]
+
     # Optimizer and Scheduler
-    def configure_optimizers(
-        self,
-    ) -> Tuple[List[torch.optim.Optimizer], List[Dict[str, Any]]]:
-        """Configure the Optimizer and Scheduler"""
+    def configure_optimizers(self):
         optimizer = [
             torch.optim.AdamW(
                 self.parameters(),
@@ -118,25 +133,14 @@ class MetricBase(LightningModule):
         ]
         return optimizer, scheduler
 
-    # Before optimizer step
-    def on_before_optimizer_step(self, optimizer, *args, **kwargs):
-        """Settings before optimizer step"""
+    # def on_train_start(self):
+    #    self.trainer.strategy.optimizers = [
+    #        self.trainer.lr_scheduler_configs[0].scheduler.optimizer
+    #    ]
 
-        # warm up lr
-        if self.hparams.get("warmup", 0) and (
-            self.trainer.current_epoch < self.hparams["warmup"]
-        ):
-            lr_scale = min(
-                1.0, float(self.trainer.current_epoch + 1) / self.hparams["warmup"]
-            )
-            for pg in optimizer.param_groups:
-                pg["lr"] = lr_scale * self.hparams["lr"]
+    # ---------------------------- Helper Functions ----------------------------
 
-        # after reaching minimum learning rate, stop LR decay
-        for pg in optimizer.param_groups:
-            pg["lr"] = max(pg["lr"], self.hparams.get("min_lr", 0))
-
-    # Helper Functions (1): Get input data
+    # Get input data
     def get_input_data(self, batch: Any) -> torch.Tensor:
         """Get input data, handling whether Cell Information (ci) is included"""
 
@@ -151,7 +155,7 @@ class MetricBase(LightningModule):
 
         return input_data
 
-    # Helper Functions (2): Get query points
+    # Get query points
     def get_query_points(
         self, batch: Any, spatial: torch.Tensor
     ) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -173,14 +177,8 @@ class MetricBase(LightningModule):
 
         return query_indices, query
 
-    # Helper Functions (3): Append Hard Negative Mining (hnm) Pairs with Prediction Graph
-    def append_hnm_pairs(
-        self,
-        e_spatial: torch.Tensor,
-        query: torch.Tensor,
-        query_indices: torch.Tensor,
-        spatial: torch.Tensor,
-    ) -> torch.Tensor:
+    # Append Hard Negative Mining (hnm) Pairs with Prediction Edge List
+    def append_hnm_pairs(self, e_spatial, query, query_indices, spatial):
         """Append Hard Negative Mining (hnm) with KNN graph"""
 
         if "low_purity" in self.hparams["regime"]:
@@ -213,13 +211,8 @@ class MetricBase(LightningModule):
 
         return e_spatial
 
-    # Helper Functions (4): Append Random Pairs to Prediction Graph
-    def append_random_pairs(
-        self,
-        e_spatial: torch.Tensor,
-        query_indices: torch.Tensor,
-        spatial: torch.Tensor,
-    ) -> torch.Tensor:
+    # Append Random Pairs to Prediction Edge List
+    def append_random_pairs(self, e_spatial, query_indices, spatial):
         """Append random edges pairs (rp) for stability"""
 
         n_random = int(self.hparams["randomisation"] * len(query_indices))
@@ -235,14 +228,15 @@ class MetricBase(LightningModule):
         )
         return e_spatial
 
-    # Helper Functions (5): Append all positive examples and their truth and weighting
-    def get_true_pairs(
-        self,
-        e_spatial: torch.Tensor,
-        y_cluster: torch.Tensor,
-        new_weights: torch.Tensor,
-        e_bidir: torch.Tensor,
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    # Calculate truth from intersection between Prediction graph and Truth graph
+    def get_truth(self, batch, e_spatial, true_edges_bidir):
+        """Calculate truth from intersection between Prediction graph and Truth graph"""
+        e_spatial, y_cluster = graph_intersection(e_spatial, true_edges_bidir)
+
+        return e_spatial, y_cluster
+
+    # Append all positive examples and their truth and weighting
+    def get_true_pairs(self, e_spatial, y_cluster, new_weights, true_edges_bidir):
         """
         Incorporate ground truth edges into the current edge set and update corresponding labels and weights.
 
@@ -254,7 +248,7 @@ class MetricBase(LightningModule):
             e_spatial (torch.Tensor): Current edge list, which may include both predicted and some true edges.
             y_cluster (torch.Tensor): Binary labels for the current edges (1 for positive, 0 for negative).
             new_weights (torch.Tensor): Current weights assigned to each edge.
-            e_bidir (torch.Tensor): Bidirectional ground truth edges.
+            true_edges_bidir (torch.Tensor): Bidirectional ground truth edges.
 
         Returns:
             Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -262,20 +256,20 @@ class MetricBase(LightningModule):
                 - Updated binary labels (y_cluster) for all edges
                 - Updated weights (new_weights) for all edges
         """
-        # Append ground truth edges (e_bidir) to the current edge list (e_spatial)
+        # Append ground truth edges (true_edges_bidir) to the current edge list (e_spatial)
         # This ensures all known true positive pairs are included in the training process
         e_spatial = torch.cat(
             [
                 e_spatial.to(self.device),
-                e_bidir,
+                true_edges_bidir,
             ],
             dim=-1,
         )
 
         # Update labels to reflect the addition of ground truth edges
-        # All newly added edges from e_bidir are positive examples, so we append a tensor of ones
+        # All newly added edges from true_edges_bidir are positive examples, so we append a tensor of ones
         y_cluster = torch.cat(
-            [y_cluster.int(), torch.ones(e_bidir.shape[1], device=self.device)]
+            [y_cluster.int(), torch.ones(true_edges_bidir.shape[1], device=self.device)]
         )
 
         # Assign weights to the newly added ground truth edges
@@ -284,97 +278,181 @@ class MetricBase(LightningModule):
         new_weights = torch.cat(
             [
                 new_weights,
-                torch.ones(e_bidir.shape[1], device=self.device)
+                torch.ones(true_edges_bidir.shape[1], device=self.device)
                 * self.hparams["weight"],
             ]
         )
 
         return e_spatial, y_cluster, new_weights
 
-    # Helper Functions (6): Calculate hinge distance
-    def get_hinge_distance(
-        self, spatial: torch.Tensor, e_spatial: torch.Tensor, y_cluster: torch.Tensor
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    # Custom Loss Functions
+    def loss_function(
+        self, batch, spatial, e_spatial=None, y_cluster=None, weights=None
+    ):
+        pass
+
+    def loss_function_new(
+        self, batch, embedding, weights=None, pred_edges=None, truth=None
+    ):
+        """Steering Function to Calculate Loss"""
+        if pred_edges is None:
+            assert "edge_index" in get_pyg_data_keys(
+                batch
+            ), "Must provide pred_edges if not in batch"
+            pred_edges = batch.edge_index
+
+        if truth is None:
+            assert "edge_y" in get_pyg_data_keys(
+                batch
+            ), "Must provide truth if not in batch"
+            truth = batch.edge_y
+
+        if weights is None:
+            weights = torch.ones_like(truth)
+
+        d = self.get_distances(embedding, pred_edges)
+
+        return self.weighted_hinge_loss(truth, d, weights)
+
+    def get_distances(self, embedding, pred_edges):
+        """Calculates Euclidean Distances"""
+        reference = embedding[pred_edges[1]]
+        neighbors = embedding[pred_edges[0]]
+
+        try:  # This can be resource intensive, so we chunk it if it fails
+            d = torch.sum((reference - neighbors) ** 2, dim=-1)
+        except RuntimeError:
+            d = [
+                torch.sum((ref - nei) ** 2, dim=-1)
+                for ref, nei in zip(reference.chunk(10), neighbors.chunk(10))
+            ]
+            d = torch.cat(d)
+
+        return d
+
+    def weighted_hinge_loss(
+        self,
+        spatial,
+        e_spatial,
+        y_cluster,
+        new_weights,
+    ):
+        """Calculate the hinge loss for the embedding model.
+        The function performs the following steps:
+        1. Calculates distances between point pairs and prepares hinge values.
+        2. Applies a weight of 1 to negative examples.
+        3. Computes separate losses for negative and positive pairs using hinge loss.
+        4. Combines the negative and positive losses, with the positive loss weighted by a hyperparameter.
+
+        The margin for the hinge loss is defined by the hyperparameter 'margin'.
+        The weighting for positive examples is controlled by the hyperparameter 'weight'.
         """
-        Calculate hinge distance for edge pairs.
+        # Get distance between the reference and neighbor points
+        d = self.get_distances(spatial, e_spatial)
 
-        This function computes the squared Euclidean distance between node pairs in the embedding space
-        and prepares the hinge values for loss calculation.
-
-        Args:
-            spatial (torch.Tensor): Node embeddings output by the MLP. Shape: [num_nodes, embedding_dim]
-            e_spatial (torch.Tensor): Edge list containing pairs of node indices. Shape: [2, num_edges]
-            y_cluster (torch.Tensor): Binary labels for the edges (1 for positive, 0 for negative). Shape: [num_edges]
-
-        Returns:
-            Tuple[torch.Tensor, torch.Tensor]:
-                - hinge: Tensor of -1 and 1 values, where 1 indicates a positive pair and -1 a negative pair
-                - d: Squared Euclidean distances between node pairs in the embedding space
-        """
-
-        # Convert binary labels to -1 and 1 for hinge loss calculation
+        # Get hinge
         hinge = y_cluster.float().to(self.device)
         hinge[hinge == 0] = -1
 
-        # Select embeddings for the first nodes in each edge pair
-        reference = spatial.index_select(0, e_spatial[1])
+        # Give negative examples a weight of 1 (note that there may still be TRUE examples that are weightless)
+        new_weights[hinge == -1] = 1
 
-        # Select embeddings for the second nodes in each edge pair
-        neighbors = spatial.index_select(0, e_spatial[0])
+        # Calculate the negative loss
+        negative_loss = F.hinge_embedding_loss(
+            d[hinge == -1],
+            hinge[hinge == -1],
+            margin=self.hparams.get("hinge_margin", 1.0) ** 2,
+            reduction="mean",
+        )
 
-        # Compute squared Euclidean distance between node pairs in the embedding space
-        d = torch.sum((reference - neighbors) ** 2, dim=-1)
+        # Calculate the positive loss
+        positive_loss = F.hinge_embedding_loss(
+            d[hinge == 1],
+            hinge[hinge == 1],
+            margin=self.hparams.get("hinge_margin", 1.0) ** 2,
+            reduction="mean",
+        )
 
-        return hinge, d
+        # Calculate and return the total loss
+        return negative_loss + self.hparams["weight"] * positive_loss
 
-    # Helper Functions (7): Calculate truth from intersection between Prediction graph and Truth graph
-    def get_truth(
-        self, batch: Any, e_spatial: torch.Tensor, e_bidir: torch.Tensor
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
-        """Calculate truth from intersection between Prediction graph and Truth graph"""
-        e_spatial, y_cluster = graph_intersection(e_spatial, e_bidir)
+    def weighted_hinge_loss_new(self, truth, d, weights):
+        """Calculates Weighted Hinge Loss"""
 
-        return e_spatial, y_cluster
+        negative_mask = ((truth == 0) & (weights != 0)) | (weights < 0)
+
+        # Handle negative loss, but don't reduce vector
+        negative_loss = torch.nn.functional.hinge_embedding_loss(
+            d[negative_mask],
+            torch.ones_like(d[negative_mask]) * -1,
+            margin=self.hparams["margin"] ** 2,
+            reduction="none",
+        )
+
+        # Now reduce the vector with non-zero weights
+        negative_loss = torch.mean(negative_loss * weights[negative_mask].abs())
+
+        positive_mask = (truth == 1) & (weights > 0)
+
+        # Handle positive loss, but don't reduce vector
+        positive_loss = torch.nn.functional.hinge_embedding_loss(
+            d[positive_mask],
+            torch.ones_like(d[positive_mask]),
+            margin=self.hparams["margin"] ** 2,
+            reduction="none",
+        )
+
+        # Now reduce the vector with non-zero weights
+        positive_loss = torch.mean(positive_loss * weights[positive_mask].abs())
+
+        return negative_loss + positive_loss
+
+    # --------------------------- Training Functions ---------------------------
 
     # Training Step
-    def training_step(self, batch: Any, batch_idx: int) -> torch.Tensor:
+    def training_step(self, batch, batch_idx):
         """Training step"""
 
-        # Instantiate empty edge list (edge_index)
+        # Instantiate Empty Edge List (e_spatial/training_edges)
         e_spatial = torch.empty([2, 0], dtype=torch.int64, device=self.device)
 
-        # Forward pass of model, handling whether Cell Information (ci) is included
+        # Get Input Data
         input_data = self.get_input_data(batch)
 
-        # Get embeddings from model
+        # Get Embeddings From Model
         with torch.no_grad():
             spatial = self(input_data)
 
+        # Get Query Points
         query_indices, query = self.get_query_points(batch, spatial)
 
         # Append Hard Negative Mining (hnm) with KNN graph
-        if "hnm" in self.hparams["regime"]:
-            e_spatial = self.append_hnm_pairs(e_spatial, query, query_indices, spatial)
+        e_spatial = self.append_hnm_pairs(e_spatial, query, query_indices, spatial)
 
-        # Append random edges pairs (rp) for stability
-        if "rp" in self.hparams["regime"]:
-            e_spatial = self.append_random_pairs(e_spatial, query_indices, spatial)
+        # Append Random Edges Pairs (rp) for Stability
+        e_spatial = self.append_random_pairs(e_spatial, query_indices, spatial)
 
-        # Instantiate bidirectional truth (since KNN prediction will be bidirectional)
-        e_bidir = torch.cat(
+        # FIXME: Simplify logic by using more
+        # Get Signal True Edges (bidirectional since KNN prediction will be bidirectional)
+        true_edges_bidir = torch.cat(
             [batch.signal_true_edges, batch.signal_true_edges.flip(0)], dim=-1
         )
 
-        # Calculate truth from intersection between Prediction graph and Truth graph
-        e_spatial, y_cluster = self.get_truth(batch, e_spatial, e_bidir)
+        # Get Labelled Edge List (e_spatial, y_cluster) using Graph Intersection
+        # Note: e_spatial is edge list we constructed using hnm & rp, we need
+        # ground truth of our graph which is true_edges_bidir (find a better name) here.
+        e_spatial, y_cluster = self.get_truth(batch, e_spatial, true_edges_bidir)
+
+        # Calculate Weights
         new_weights = y_cluster.to(self.device) * self.hparams["weight"]
 
         # Append all positive examples and their truth and weighting
         e_spatial, y_cluster, new_weights = self.get_true_pairs(
-            e_spatial, y_cluster, new_weights, e_bidir
+            e_spatial, y_cluster, new_weights, true_edges_bidir
         )
 
         included_hits = e_spatial.unique()
+
         spatial[included_hits] = self(input_data[included_hits])
 
         # TODO: Choose between hinge loss, triplet loss, and cosine embedding loss
@@ -411,14 +489,14 @@ class MetricBase(LightningModule):
     # Shared evaluation function
     def shared_evaluation(
         self,
-        batch: Any,
-        batch_idx: int,
-        knn_radius: float,
-        knn_num: int,
-        log: bool = False,
-        verbose: bool = False,
-    ) -> Dict[str, Any]:
-        """Shared evaluation function for validation and test steps"""
+        batch,
+        batch_idx,
+        knn_rad,
+        knn_num,
+        log=False,
+        verbose=False,
+    ):
+        """Shared Evaluation Function for Validation and Test Steps"""
 
         # Get input data
         input_data = self.get_input_data(batch)
@@ -427,17 +505,17 @@ class MetricBase(LightningModule):
         spatial = self(input_data)
 
         # Instantiate bidirectional truth (since KNN prediction will be bidirectional)
-        e_bidir = torch.cat(
+        true_edges_bidir = torch.cat(
             [batch.signal_true_edges, batch.signal_true_edges.flip(0)], dim=-1
         )
 
         # Build whole KNN graph
         e_spatial = build_edges(
-            spatial, spatial, indices=None, r_max=knn_radius, k_max=knn_num
+            spatial, spatial, indices=None, r_max=knn_rad, k_max=knn_num
         )
 
         # Calculate truth from intersection between Prediction graph and Truth graph
-        e_spatial, y_cluster = self.get_truth(batch, e_spatial, e_bidir)
+        e_spatial, y_cluster = self.get_truth(batch, e_spatial, true_edges_bidir)
 
         # Calculate hinge distance
         hinge, d = self.get_hinge_distance(
@@ -450,7 +528,7 @@ class MetricBase(LightningModule):
         )
 
         # Calculate efficiency and purity
-        cluster_true = e_bidir.shape[1]
+        cluster_true = true_edges_bidir.shape[1]
         cluster_true_positive = y_cluster.sum()
         cluster_positive = len(e_spatial[0])
 
@@ -479,14 +557,14 @@ class MetricBase(LightningModule):
             "distances": d,
             "preds": e_spatial,
             "truth": y_cluster,
-            "truth_graph": e_bidir,
+            "truth_graph": true_edges_bidir,
             "eff": eff,
             "pur": pur,
         }
 
     # Validation Step
-    def validation_step(self, batch: Data, batch_idx: int) -> torch.Tensor:
-        """Step to evaluate the model's performance"""
+    def validation_step(self, batch, batch_idx):
+        """Run Validation Loop"""
         outputs = self.shared_evaluation(
             batch, batch_idx, self.hparams["r_val"], 150, log=True
         )
@@ -494,180 +572,33 @@ class MetricBase(LightningModule):
         return outputs["loss"]
 
     # Test Step
-    def test_step(self, batch: Data, batch_idx: int) -> Dict[str, Any]:
-        """Step to evaluate the model's performance"""
+    def test_step(self, batch, batch_idx):
+        """Run Testing Loop"""
         outputs = self.shared_evaluation(
             batch, batch_idx, self.hparams["r_test"], 1000, log=False
         )
 
         return outputs
 
-    # Loss Functions: Hinge Loss, Triplet Loss, Cosine Embedding Loss, etc.
-    def weighted_hinge_loss(
-        self,
-        spatial: torch.Tensor,
-        e_spatial: torch.Tensor,
-        y_cluster: torch.Tensor,
-        new_weights: torch.Tensor,
-    ) -> torch.Tensor:
-        """
-        Calculate the hinge loss for the embedding model.
+    # Predict Step
+    def predict_step(self, batch, batch_idx):
+        """Run Prediction Loop"""
+        pass
 
-        This function computes the hinge loss, which is used to train the model to distinguish
-        between positive pairs (points that should be close in the embedding space) and
-        negative pairs (points that should be far apart).
+    # Optimizer Step
+    def on_before_optimizer_step(self, optimizer, *args, **kwargs):
+        """Settings before Optimizer Step"""
 
-        Args:
-            spatial (torch.Tensor): The spatial embeddings of the points.
-            e_spatial (torch.Tensor): Edge information, containing indices of point pairs.
-            y_cluster (torch.Tensor): Binary labels for edges (0 for negative, 1 for positive pairs).
-            new_weights (torch.Tensor): Weights for each edge pair.
-
-        Returns:
-            torch.Tensor: The total hinge loss, combining weighted positive and negative losses.
-
-        The function performs the following steps:
-        1. Calculates distances between point pairs and prepares hinge values.
-        2. Applies a weight of 1 to negative examples.
-        3. Computes separate losses for negative and positive pairs using hinge loss.
-        4. Combines the negative and positive losses, with the positive loss weighted by a hyperparameter.
-
-        The margin for the hinge loss is defined by the hyperparameter 'margin'.
-        The weighting for positive examples is controlled by the hyperparameter 'weight'.
-        """
-        # Get the hinge distance between the reference and neighbor points
-        hinge, d = self.get_hinge_distance(spatial, e_spatial, y_cluster)
-
-        # Give negative examples a weight of 1 (note that there may still be TRUE examples that are weightless)
-        new_weights[hinge == -1] = 1
-
-        # Calculate the negative loss
-        negative_loss = F.hinge_embedding_loss(
-            d[hinge == -1],
-            hinge[hinge == -1],
-            margin=self.hparams.get("hinge_margin", 1.0) ** 2,
-            reduction="mean",
-        )
-
-        # Calculate the positive loss
-        positive_loss = F.hinge_embedding_loss(
-            d[hinge == 1],
-            hinge[hinge == 1],
-            margin=self.hparams.get("hinge_margin", 1.0) ** 2,
-            reduction="mean",
-        )
-
-        # Calculate and return the total loss
-        return negative_loss + self.hparams["weight"] * positive_loss
-
-    def weighted_triplet_loss(
-        self,
-        spatial: torch.Tensor,
-        e_spatial: torch.Tensor,
-        y_cluster: torch.Tensor,
-        new_weights: torch.Tensor,
-    ) -> torch.Tensor:
-        """
-        Calculate the triplet loss for the embedding model.
-
-        This function computes the triplet loss, which is used to train the model to minimize the
-        distance between an anchor and a positive sample, while maximizing the distance between
-        the anchor and a negative sample.
-
-        Args:
-            spatial (torch.Tensor): The spatial embeddings of the points.
-            e_spatial (torch.Tensor): Edge information, containing indices of point pairs.
-            y_cluster (torch.Tensor): Binary labels for edges (0 for negative, 1 for positive pairs).
-            new_weights (torch.Tensor): Weights for each edge pair.
-
-        Returns:
-            torch.Tensor: The total triplet loss.
-
-        The function performs the following steps:
-        1. Selects anchor and neighbor samples from the spatial embedding.
-        2. Determines positive and negative samples based on y_cluster.
-        3. Ensures equal number of positive and negative samples.
-        4. Computes the triplet loss using these samples.
-        5. Applies weights to the loss.
-
-        The margin for the triplet loss is defined by the hyperparameter 'triplet_margin'.
-        """
-
-        # Ensure e_spatial has at least two rows for anchor and neighbor
-        if e_spatial.shape[0] < 2:
-            raise ValueError(
-                "Triplet loss requires e_spatial to have at least 2 rows: anchor and neighbor"
+        # warm up lr
+        if self.hparams.get("warmup", 0) and (
+            self.trainer.current_epoch < self.hparams["warmup"]
+        ):
+            lr_scale = min(
+                1.0, float(self.trainer.current_epoch + 1) / self.hparams["warmup"]
             )
+            for pg in optimizer.param_groups:
+                pg["lr"] = lr_scale * self.hparams["lr"]
 
-        anchors = spatial[e_spatial[0]]
-        neighbors = spatial[e_spatial[1]]
-
-        # Determine positive and negative samples based on y_cluster
-        positives = neighbors[y_cluster == 1]
-        negatives = neighbors[y_cluster == 0]
-
-        # Ensure we have equal number of positives and negatives
-        min_samples = min(positives.shape[0], negatives.shape[0])
-        if min_samples == 0:
-            return torch.tensor(
-                0.0, device=self.device
-            )  # No valid triplets in this batch
-
-        anchors = anchors[:min_samples]
-        positives = positives[:min_samples]
-        negatives = negatives[:min_samples]
-
-        # Compute triplet loss
-        loss = F.triplet_margin_loss(
-            anchors,
-            positives,
-            negatives,
-            margin=self.hparams.get("triplet_margin", 1.0),
-            reduction="none",
-        )
-
-        # Apply weights (we need to adjust weights to match the reduced sample size)
-        relevant_weights = new_weights[:min_samples]
-        weighted_loss = loss * relevant_weights
-
-        return weighted_loss.mean()
-
-    def weighted_cosine_embedding_loss(
-        self,
-        spatial: torch.Tensor,
-        e_spatial: torch.Tensor,
-        y_cluster: torch.Tensor,
-        new_weights: torch.Tensor,
-    ) -> torch.Tensor:
-        """
-        Calculate the cosine embedding loss for the embedding model.
-
-        This function computes the cosine embedding loss, which uses cosine similarity
-        instead of Euclidean distance. It's useful when the magnitude of embeddings
-        is less important than their direction.
-
-        Args:
-            spatial (torch.Tensor): The spatial embeddings of all points.
-            e_spatial (torch.Tensor): Edge information, containing indices of point pairs to compare.
-            y_cluster (torch.Tensor): Binary labels for edges (0 for negative, 1 for positive pairs).
-            new_weights (torch.Tensor): Weights for each edge pair.
-
-        Returns:
-            torch.Tensor: The total weighted cosine embedding loss.
-        """
-        # Select pairs of points
-        x1 = spatial[e_spatial[0]]
-        x2 = spatial[e_spatial[1]]
-
-        # Convert binary labels to 1 and -1
-        # Cosine embedding loss expects 1 for similar pairs and -1 for dissimilar pairs
-        y = 2 * y_cluster.float() - 1
-
-        # Compute cosine embedding loss
-        loss = F.cosine_embedding_loss(
-            x1, x2, y, margin=self.hparams.get("cosine_margin", 0.5), reduction="none"
-        )
-
-        # Apply weights
-        weighted_loss = loss * new_weights
-        return weighted_loss.mean()
+        # after reaching minimum learning rate, stop LR decay
+        for pg in optimizer.param_groups:
+            pg["lr"] = max(pg["lr"], self.hparams.get("min_lr", 0))
