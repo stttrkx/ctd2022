@@ -219,14 +219,14 @@ class MetricBase(LightningModule):
         return e_spatial
 
     # Calculate truth from intersection between Prediction graph and Truth graph
-    def get_truth(self, batch, e_spatial, true_edges_bidir):
+    def get_truth(self, batch, e_spatial, e_bidir):
         """Calculate truth from intersection between Prediction graph and Truth graph"""
-        e_spatial, y_cluster = graph_intersection(e_spatial, true_edges_bidir)
+        e_spatial, y_cluster = graph_intersection(e_spatial, e_bidir)
 
         return e_spatial, y_cluster
 
     # Append all positive examples and their truth and weighting
-    def get_true_pairs(self, e_spatial, y_cluster, new_weights, true_edges_bidir):
+    def get_true_pairs(self, e_spatial, y_cluster, new_weights, e_bidir):
         """
         Incorporate ground truth edges into the current edge set and update corresponding labels and weights.
 
@@ -238,7 +238,7 @@ class MetricBase(LightningModule):
             e_spatial (torch.Tensor): Current edge list, which may include both predicted and some true edges.
             y_cluster (torch.Tensor): Binary labels for the current edges (1 for positive, 0 for negative).
             new_weights (torch.Tensor): Current weights assigned to each edge.
-            true_edges_bidir (torch.Tensor): Bidirectional ground truth edges.
+            e_bidir (torch.Tensor): Bidirectional ground truth edges.
 
         Returns:
             Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -246,20 +246,20 @@ class MetricBase(LightningModule):
                 - Updated binary labels (y_cluster) for all edges
                 - Updated weights (new_weights) for all edges
         """
-        # Append ground truth edges (true_edges_bidir) to the current edge list (e_spatial)
+        # Append ground truth edges (e_bidir) to the current edge list (e_spatial)
         # This ensures all known true positive pairs are included in the training process
         e_spatial = torch.cat(
             [
                 e_spatial.to(self.device),
-                true_edges_bidir,
+                e_bidir,
             ],
             dim=-1,
         )
 
         # Update labels to reflect the addition of ground truth edges
-        # All newly added edges from true_edges_bidir are positive examples, so we append a tensor of ones
+        # All newly added edges from e_bidir are positive examples, so we append a tensor of ones
         y_cluster = torch.cat(
-            [y_cluster.int(), torch.ones(true_edges_bidir.shape[1], device=self.device)]
+            [y_cluster.int(), torch.ones(e_bidir.shape[1], device=self.device)]
         )
 
         # Assign weights to the newly added ground truth edges
@@ -268,7 +268,7 @@ class MetricBase(LightningModule):
         new_weights = torch.cat(
             [
                 new_weights,
-                torch.ones(true_edges_bidir.shape[1], device=self.device)
+                torch.ones(e_bidir.shape[1], device=self.device)
                 * self.hparams["weight"],
             ]
         )
@@ -501,37 +501,32 @@ class MetricBase(LightningModule):
 
         # FIXME: Simplify logic by using more
         # Get Signal True Edges (bidirectional since KNN prediction will be bidirectional)
-        true_edges_bidir = torch.cat(
+        e_bidir = torch.cat(
             [batch.signal_true_edges, batch.signal_true_edges.flip(0)], dim=-1
         )
 
         # Get Labelled Edge List (e_spatial, y_cluster) using Graph Intersection
         # Note: e_spatial is edge list we constructed using hnm & rp, we need
-        # ground truth of our graph which is true_edges_bidir (find a better name) here.
-        e_spatial, y_cluster = self.get_truth(batch, e_spatial, true_edges_bidir)
+        # ground truth of our graph which is e_bidir (find a better name) here.
+        e_spatial, y_cluster = self.get_truth(batch, e_spatial, e_bidir)
 
         # Calculate Weights
         new_weights = y_cluster.to(self.device) * self.hparams["weight"]
 
         # Append all positive examples and their truth and weighting
         e_spatial, y_cluster, new_weights = self.get_true_pairs(
-            e_spatial, y_cluster, new_weights, true_edges_bidir
+            e_spatial, y_cluster, new_weights, e_bidir
         )
 
+        # Select unique edges
         included_hits = e_spatial.unique()
-
         spatial[included_hits] = self(input_data[included_hits])
-
-        # Calculate Hinge Loss
 
         # Get distance between the reference and neighbor points
         d = self.pairwise_distances(spatial, e_spatial)
 
         # Convert actual labels (0, 1) to hinge labels (-1, +1)
         hinge = 2 * y_cluster.float().to(self.device) - 1
-
-        # Give negative examples a weight of 1 (note that there may still be TRUE examples that are weightless)
-        new_weights[hinge == -1] = 1
 
         # Calculate negative loss
         negative_loss = torch.nn.functional.hinge_embedding_loss(
@@ -575,7 +570,7 @@ class MetricBase(LightningModule):
         spatial = self(input_data)
 
         # Instantiate bidirectional truth (since KNN prediction will be bidirectional)
-        true_edges_bidir = torch.cat(
+        e_bidir = torch.cat(
             [batch.signal_true_edges, batch.signal_true_edges.flip(0)], dim=-1
         )
 
@@ -585,7 +580,7 @@ class MetricBase(LightningModule):
         )
 
         # Calculate truth from intersection between Prediction graph and Truth graph
-        e_spatial, y_cluster = self.get_truth(batch, e_spatial, true_edges_bidir)
+        e_spatial, y_cluster = self.get_truth(batch, e_spatial, e_bidir)
 
         # Calculate hinge distance
         hinge, d = self.get_hinge_distance(
@@ -598,7 +593,7 @@ class MetricBase(LightningModule):
         )
 
         # Calculate efficiency and purity
-        cluster_true = true_edges_bidir.shape[1]
+        cluster_true = e_bidir.shape[1]
         cluster_true_positive = y_cluster.sum()
         cluster_positive = len(e_spatial[0])
 
@@ -627,7 +622,7 @@ class MetricBase(LightningModule):
             "distances": d,
             "preds": e_spatial,
             "truth": y_cluster,
-            "truth_graph": true_edges_bidir,
+            "truth_graph": e_bidir,
             "eff": eff,
             "pur": pur,
         }

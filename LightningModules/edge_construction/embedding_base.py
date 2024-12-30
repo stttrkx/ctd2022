@@ -101,35 +101,6 @@ class EmbeddingBase(LightningModule):
         ]
         return optimizer, scheduler
 
-    def optimizer_step(
-        self,
-        epoch: int,
-        batch_idx: int,
-        optimizer=None,
-        optimizer_idx: int = None,
-        optimizer_closure=None,
-        on_tpu: bool = False,
-        using_native_amp: bool = False,
-        using_lbfgs: bool = False,
-    ) -> None:
-        """
-        Use this to manually enforce warm-up. In the future, this may become built-into PyLightning
-        """
-
-        # warm up lr
-        if (self.hparams["warmup"] is not None) and (
-            self.trainer.current_epoch < self.hparams["warmup"]
-        ):
-            lr_scale = min(
-                1.0, float(self.trainer.current_epoch + 1) / self.hparams["warmup"]
-            )
-            for pg in optimizer.param_groups:
-                pg["lr"] = lr_scale * self.hparams["lr"]
-
-        # update params
-        optimizer.step(closure=optimizer_closure)
-        optimizer.zero_grad()
-
     # Helper Functions
     def get_input_data(self, batch):
 
@@ -233,8 +204,14 @@ class EmbeddingBase(LightningModule):
 
         reference = spatial.index_select(0, e_spatial[1])
         neighbors = spatial.index_select(0, e_spatial[0])
-        d = torch.sum((reference - neighbors) ** 2, dim=-1)
-
+        try:
+            d = torch.sum((reference - neighbors) ** 2, dim=-1)
+        except RuntimeError:
+            # Need to perform this step in chunks?
+            d = []
+            for ref, nei in zip(reference.chunk(10), neighbors.chunk(10)):
+                d.append(torch.sum((ref - nei) ** 2, dim=-1))
+            d = torch.cat(d)
         return hinge, d
 
     def get_truth(self, batch, e_spatial, e_bidir):
@@ -283,9 +260,6 @@ class EmbeddingBase(LightningModule):
         spatial[included_hits] = self(input_data[included_hits])
 
         hinge, d = self.get_hinge_distance(spatial, e_spatial, y_cluster)
-
-        # Give negative examples a weight of 1 (note that there may still be TRUE examples that are weightless)
-        new_weights[hinge == -1] = 1
 
         negative_loss = torch.nn.functional.hinge_embedding_loss(
             d[hinge == -1],
@@ -379,3 +353,32 @@ class EmbeddingBase(LightningModule):
         )
 
         return outputs
+
+    def optimizer_step(
+        self,
+        epoch: int,
+        batch_idx: int,
+        optimizer=None,
+        optimizer_idx: int = None,
+        optimizer_closure=None,
+        on_tpu: bool = False,
+        using_native_amp: bool = False,
+        using_lbfgs: bool = False,
+    ) -> None:
+        """
+        Use this to manually enforce warm-up. In the future, this may become built-into PyLightning
+        """
+
+        # warm up lr
+        if (self.hparams["warmup"] is not None) and (
+            self.trainer.current_epoch < self.hparams["warmup"]
+        ):
+            lr_scale = min(
+                1.0, float(self.trainer.current_epoch + 1) / self.hparams["warmup"]
+            )
+            for pg in optimizer.param_groups:
+                pg["lr"] = lr_scale * self.hparams["lr"]
+
+        # update params
+        optimizer.step(closure=optimizer_closure)
+        optimizer.zero_grad()
