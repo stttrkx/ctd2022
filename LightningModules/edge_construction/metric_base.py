@@ -181,26 +181,15 @@ class MetricBase(LightningModule):
     def append_hnm_pairs(self, e_spatial, query, query_indices, spatial):
         """Append Hard Negative Mining (hnm) with KNN graph"""
 
-        if "low_purity" in self.hparams["regime"]:
-            knn_edges = build_edges(
-                query, spatial, query_indices, self.hparams["r_train"], 500
-            )
-            knn_edges = knn_edges[
-                :,
-                torch.randperm(knn_edges.shape[1])[
-                    : int(self.hparams["r_train"] * len(query))
-                ],
-            ]
+        knn_edges = build_edges(
+            query,
+            spatial,
+            query_indices,
+            self.hparams["r_train"],
+            self.hparams["knn"],
+        )
 
-        else:
-            knn_edges = build_edges(
-                query,
-                spatial,
-                query_indices,
-                self.hparams["r_train"],
-                self.hparams["knn"],
-            )
-
+        # append kNN edges to edge list
         e_spatial = torch.cat(
             [
                 e_spatial,
@@ -209,6 +198,7 @@ class MetricBase(LightningModule):
             dim=-1,
         )
 
+        # return final edge list
         return e_spatial
 
     # Append Random Pairs to Prediction Edge List
@@ -289,35 +279,36 @@ class MetricBase(LightningModule):
     def loss_function(
         self, batch, spatial, e_spatial=None, y_cluster=None, weights=None
     ):
-        pass
+        """Steering function to compute loss (hinge, triplet or cosine).
 
-    def loss_function_new(
-        self, batch, embedding, weights=None, pred_edges=None, truth=None
-    ):
-        """Steering Function to Calculate Loss"""
-        if pred_edges is None:
-            assert "edge_index" in get_pyg_data_keys(
-                batch
-            ), "Must provide pred_edges if not in batch"
-            pred_edges = batch.edge_index
+        Args:
+            spatial (torch.Tensor): Node embeddings of shape (num_nodes, embedding_dim).
+            e_spatial (torch.Tensor): Edge indices of shape (2, num_edges).
+            y_cluster (torch.Tensor): Edge labels (1 for similar, 0 for dissimilar) of shape (num_edges,).
+            weights (torch.Tensor, optional): Weights for each edge of shape (num_edges,).
+                Positive weights maintain relationship, negative weights flip it, zero weights exclude pairs.
+        Returns:
+            torch.Tensor: The total weighted loss (hinge, triplet or cosine).
+        """
 
-        if truth is None:
-            assert "edge_y" in get_pyg_data_keys(
-                batch
-            ), "Must provide truth if not in batch"
-            truth = batch.edge_y
+        # Compute squared Euclidean distances between pairs of points
+        d = self.pairwise_distances(spatial, e_spatial)
 
-        if weights is None:
-            weights = torch.ones_like(truth)
+        # Return weighted hinge loss
+        return self.get_weighted_hinge_loss(y_cluster, d, weights)
 
-        d = self.get_distances(embedding, pred_edges)
+    def pairwise_distances(self, spatial, e_spatial):
+        """
+        Compute squared Euclidean distances between pairs of points.
 
-        return self.weighted_hinge_loss(truth, d, weights)
-
-    def get_distances(self, embedding, pred_edges):
-        """Calculates Euclidean Distances"""
-        reference = embedding[pred_edges[1]]
-        neighbors = embedding[pred_edges[0]]
+        Args:
+            spatial (torch.Tensor): Node embeddings of shape (num_nodes, embedding_dim).
+            e_spatial (torch.Tensor): Edge indices of shape (2, num_edges).
+        Returns:
+            d (torch.Tensor): Squared distances between reference and neighbor points.
+        """
+        reference = spatial.index_select(0, e_spatial[1])
+        neighbors = spatial.index_select(0, e_spatial[0])
 
         try:  # This can be resource intensive, so we chunk it if it fails
             d = torch.sum((reference - neighbors) ** 2, dim=-1)
@@ -330,56 +321,125 @@ class MetricBase(LightningModule):
 
         return d
 
-    def weighted_hinge_loss(
-        self,
-        spatial,
-        e_spatial,
-        y_cluster,
-        new_weights,
-    ):
-        """Calculate the hinge loss for the embedding model.
-        The function performs the following steps:
-        1. Calculates distances between point pairs and prepares hinge values.
-        2. Applies a weight of 1 to negative examples.
-        3. Computes separate losses for negative and positive pairs using hinge loss.
-        4. Combines the negative and positive losses, with the positive loss weighted by a hyperparameter.
+    def get_weighted_hinge_loss(self, y_cluster, d, weights):
+        """Compute the weighted hinge loss for an embedding model. It converts
+        actual edge labels (0, 1) to hinge labels (-1, 1) for computing loss.
 
-        The margin for the hinge loss is defined by the hyperparameter 'margin'.
-        The weighting for positive examples is controlled by the hyperparameter 'weight'.
+        Args:
+            y_cluster (torch.Tensor): Edge labels (1 for similar, 0 for dissimilar) of shape (num_edges,).
+            d (torch.Tensor): Squared distances between reference and neighbor points.
+            weights (torch.Tensor): Weights for each edge of shape (num_edges,).
+                Positive weights maintain relationship, negative weights flip it, zero weights exclude pairs.
+        Returns:
+            torch.Tensor: The total weighted hinge loss.
         """
-        # Get distance between the reference and neighbor points
-        d = self.get_distances(spatial, e_spatial)
+        # FIXME: Simple separate loss calculation code from the training_step()
+        # without changing the training logic, understand how hinge margin, and
+        # edge weights play a role in computing the weighted hinge loss.
 
-        # Get hinge
-        hinge = y_cluster.float().to(self.device)
-        hinge[hinge == 0] = -1
+        # Convert actual labels (0, 1) to hinge labels (-1, +1)
+        hinge = 2 * y_cluster.float().to(self.device) - 1
 
-        # Give negative examples a weight of 1 (note that there may still be TRUE examples that are weightless)
-        new_weights[hinge == -1] = 1
+        # Handle edge weights (default: 2.0)
+        weights = torch.ones_like(d) if weights is None else weights
 
-        # Calculate the negative loss
-        negative_loss = F.hinge_embedding_loss(
-            d[hinge == -1],
-            hinge[hinge == -1],
-            margin=self.hparams.get("hinge_margin", 1.0) ** 2,
-            reduction="mean",
+        # Hangle hinge margin (default: 0.1)
+        margin_squared = self.hparams["margin"] ** 2
+
+        # Negative loss: Push dissimilar pairs apart (hinge == -1)
+        negative_mask = hinge == -1
+        negative_loss = torch.nn.functional.hinge_embedding_loss(
+            d[negative_mask],
+            hinge[negative_mask],
+            margin=margin_squared,
+            reduction="none",
         )
+        negative_loss = (negative_loss * weights[negative_mask]).mean()
 
-        # Calculate the positive loss
-        positive_loss = F.hinge_embedding_loss(
-            d[hinge == 1],
-            hinge[hinge == 1],
-            margin=self.hparams.get("hinge_margin", 1.0) ** 2,
-            reduction="mean",
+        # Positive loss: Pull similar pairs closer (hinge == 1)
+        positive_mask = hinge == 1
+        positive_loss = torch.nn.functional.hinge_embedding_loss(
+            d[positive_mask],
+            hinge[positive_mask],
+            margin=margin_squared,
+            reduction="none",
         )
+        positive_loss = (positive_loss * weights[positive_mask]).mean()
 
-        # Calculate and return the total loss
-        return negative_loss + self.hparams["weight"] * positive_loss
+        # Return total weighted hinge loss
+        return negative_loss + positive_loss
 
-    def weighted_hinge_loss_new(self, truth, d, weights):
-        """Calculates Weighted Hinge Loss"""
+    def weighted_hinge_loss(self, y_cluster, d, weights):
+        """Compute the weighted hinge loss for an embedding model. It converts
+        actual edge labels (0, 1) to hinge labels (-1, 1) for computing loss.
 
-        negative_mask = ((truth == 0) & (weights != 0)) | (weights < 0)
+        Args:
+            y_cluster (torch.Tensor): Edge labels (1 for similar, 0 for dissimilar) of shape (num_edges,).
+            d (torch.Tensor): Squared distances between reference and neighbor points.
+            weights (torch.Tensor): Weights for each edge of shape (num_edges,).
+                Positive weights maintain relationship, negative weights flip it, zero weights exclude pairs.
+        Returns:
+            torch.Tensor: The total weighted hinge loss.
+        """
+        # TODO: Make it competible with weighted_hinge_loss_new(), problem is the
+        # weighting scheme used, in our case self.hparams["weight"] is set to 2.
+
+        # Convert actual labels (0, 1) to hinge labels (-1, +1)
+        hinge = 2 * y_cluster.float().to(self.device) - 1
+
+        # Handle edge weights (default: 2.0)
+        weights = torch.ones_like(d) if weights is None else weights
+
+        # Hangle hinge margin (default: 0.1)
+        margin_squared = self.hparams["margin"] ** 2
+
+        # Negative mask to handle weight signs and zeros
+        negative_mask = ((hinge == -1) & (weights > 0)) | ((hinge == 1) & (weights < 0))
+        negative_mask = negative_mask & (weights != 0)
+
+        # Negative loss: Push dissimilar pairs apart
+        negative_loss = torch.nn.functional.hinge_embedding_loss(
+            d[negative_mask],
+            torch.ones_like(d[negative_mask]) * -1,  # Always use -1
+            margin=margin_squared,
+            reduction="none",
+        )
+        # Use absolute weights
+        negative_loss = (negative_loss * weights[negative_mask].abs()).mean()
+
+        # Positive mask to handle weight signs and zeros
+        positive_mask = ((hinge == 1) & (weights > 0)) | ((hinge == -1) & (weights < 0))
+        positive_mask = positive_mask & (weights != 0)
+
+        # Positive loss: Pull similar pairs closer
+        positive_loss = torch.nn.functional.hinge_embedding_loss(
+            d[positive_mask],
+            torch.ones_like(d[positive_mask]) * 1,  # Always use 1
+            margin=margin_squared,
+            reduction="none",
+        )
+        # Use absolute weights
+        positive_loss = (positive_loss * weights[positive_mask].abs()).mean()
+
+        # Return total weighted hinge loss
+        return negative_loss + positive_loss
+
+    def weighted_hinge_loss_new(self, y_cluster, d, weights):
+        """Compute the weighted hinge loss for an embedding model. It uses actual
+        edge labels (0, 1) and converts them into hinge labels (-1, 1) on the fly.
+
+        Args:
+            y_cluster (torch.Tensor): Edge labels (1 for similar, 0 for dissimilar) of shape (num_edges,).
+            d (torch.Tensor): Squared distances between reference and neighbor points.
+            weights (torch.Tensor): Weights for each edge of shape (num_edges,).
+                Positive weights maintain relationship, negative weights flip it, zero weights exclude pairs.
+        Returns:
+            torch.Tensor: The total weighted hinge loss.
+        """
+        # FIXME: What is weighting scheme here?
+
+        # Negative mask to push dissimilar pairs apart
+        negative_mask = ((y_cluster == 0) & (weights != 0)) | (weights < 0)
 
         # Handle negative loss, but don't reduce vector
         negative_loss = torch.nn.functional.hinge_embedding_loss(
@@ -388,11 +448,11 @@ class MetricBase(LightningModule):
             margin=self.hparams["margin"] ** 2,
             reduction="none",
         )
-
         # Now reduce the vector with non-zero weights
-        negative_loss = torch.mean(negative_loss * weights[negative_mask].abs())
+        negative_loss = (negative_loss * weights[negative_mask].abs()).mean()
 
-        positive_mask = (truth == 1) & (weights > 0)
+        # Positive mask to pull similar pairs closer
+        positive_mask = (y_cluster == 1) & (weights > 0)
 
         # Handle positive loss, but don't reduce vector
         positive_loss = torch.nn.functional.hinge_embedding_loss(
@@ -401,10 +461,10 @@ class MetricBase(LightningModule):
             margin=self.hparams["margin"] ** 2,
             reduction="none",
         )
-
         # Now reduce the vector with non-zero weights
-        positive_loss = torch.mean(positive_loss * weights[positive_mask].abs())
+        positive_loss = (positive_loss * weights[positive_mask].abs()).mean()
 
+        # Return total weighted hinge loss
         return negative_loss + positive_loss
 
     # --------------------------- Training Functions ---------------------------
@@ -412,14 +472,21 @@ class MetricBase(LightningModule):
     # Training Step
     def training_step(self, batch, batch_idx):
         """Training step"""
+        # TODO: Training Steps
+        # 1 - Get input data
+        # 2 - Get node embeddings (spatial/embedding)
+        # 3 - Build edges (e_spatial)
+        # 4 - Get edges and labels (e_spatial, y_cluster) <-- get_truth()
+        # 5 - Handle edge weighting (new e_spatial, y_cluster, etc) <-- get_true_pairs()
+        # 6 - Compute, log and return weighted hinge loss
 
-        # Instantiate Empty Edge List (e_spatial/training_edges)
+        # Empty edge list
         e_spatial = torch.empty([2, 0], dtype=torch.int64, device=self.device)
 
-        # Get Input Data
+        # Get input data
         input_data = self.get_input_data(batch)
 
-        # Get Embeddings From Model
+        # Get node embeddings
         with torch.no_grad():
             spatial = self(input_data)
 
@@ -455,10 +522,13 @@ class MetricBase(LightningModule):
 
         spatial[included_hits] = self(input_data[included_hits])
 
-        # TODO: Choose between hinge loss, triplet loss, and cosine embedding loss
+        # Calculate Hinge Loss
 
-        # Calculate hinge distance
-        hinge, d = self.get_hinge_distance(spatial, e_spatial, y_cluster)
+        # Get distance between the reference and neighbor points
+        d = self.pairwise_distances(spatial, e_spatial)
+
+        # Convert actual labels (0, 1) to hinge labels (-1, +1)
+        hinge = 2 * y_cluster.float().to(self.device) - 1
 
         # Give negative examples a weight of 1 (note that there may still be TRUE examples that are weightless)
         new_weights[hinge == -1] = 1
