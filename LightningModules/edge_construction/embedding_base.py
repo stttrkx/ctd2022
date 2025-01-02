@@ -263,8 +263,17 @@ class EmbeddingBase(LightningModule):
         # Get squared Euclidean distance between pairs and hinge labels
         hinge, d = self.get_hinge_distance(spatial, e_spatial, y_cluster)
 
-        # Give negative examples a weight of 1 (note that there may still be TRUE examples that are weightless)
-        new_weights[hinge == -1] = 1  # Per-edge weighting is not implemented yet
+        # (1) Use individual weights to calculate loss
+        # Give negative examples a weight of 1 (y_cluster==0 or hinge==-1).
+        # Note that there may still be TRUE examples that are weightless
+        # new_weights[hinge == -1] = 1
+
+        # d = d * new_weights # early weighting to use "mean" reduction
+        # loss = torch.nn.functional.hinge_embedding_loss(
+        #    d, hinge, margin=self.hparams["margin"], reduction="mean"
+        # )
+
+        # (2) Use single scalar weight to calculate loss
 
         # Negative loss: Push dissimilar pairs apart (hinge == -1)
         negative_loss = torch.nn.functional.hinge_embedding_loss(
