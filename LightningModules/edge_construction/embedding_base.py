@@ -179,7 +179,7 @@ class EmbeddingBase(LightningModule):
         )
         return e_spatial
 
-    def get_true_pairs(self, e_spatial, y_cluster, new_weights, e_bidir):
+    def get_true_pairs(self, e_spatial, y_cluster, e_bidir, new_weights):
         e_spatial = torch.cat(
             [
                 e_spatial.to(self.device),
@@ -242,25 +242,31 @@ class EmbeddingBase(LightningModule):
         if "rp" in self.hparams["regime"]:
             e_spatial = self.append_random_pairs(e_spatial, query_indices, spatial)
 
-        # Instantiate bidirectional truth (since KNN prediction will be bidirectional)
+        # Instantiate bidirectional truth, since KNN prediction is bidirectional
         e_bidir = torch.cat(
             [batch.signal_true_edges, batch.signal_true_edges.flip(0)], dim=-1
         )
 
         # Calculate truth from intersection between Prediction graph and Truth graph
         e_spatial, y_cluster = self.get_truth(batch, e_spatial, e_bidir)
-        new_weights = y_cluster.to(self.device) * self.hparams["weight"]
+        weights = y_cluster.to(self.device) * self.hparams["weight"]
 
         # Append all positive examples and their truth and weighting
         e_spatial, y_cluster, new_weights = self.get_true_pairs(
-            e_spatial, y_cluster, new_weights, e_bidir
+            e_spatial, y_cluster, e_bidir, weights
         )
 
+        # Select unique edges to avoid double counting
         included_hits = e_spatial.unique()
         spatial[included_hits] = self(input_data[included_hits])
 
+        # Get squared Euclidean distance between pairs and hinge labels
         hinge, d = self.get_hinge_distance(spatial, e_spatial, y_cluster)
 
+        # Give negative examples a weight of 1 (note that there may still be TRUE examples that are weightless)
+        new_weights[hinge == -1] = 1  # Per-edge weighting is not implemented yet
+
+        # Negative loss: Push dissimilar pairs apart (hinge == -1)
         negative_loss = torch.nn.functional.hinge_embedding_loss(
             d[hinge == -1],
             hinge[hinge == -1],
@@ -268,6 +274,7 @@ class EmbeddingBase(LightningModule):
             reduction="mean",
         )
 
+        # Positive loss: Pull similar pairs closer (hinge == 1)
         positive_loss = torch.nn.functional.hinge_embedding_loss(
             d[hinge == 1],
             hinge[hinge == 1],
@@ -275,6 +282,7 @@ class EmbeddingBase(LightningModule):
             reduction="mean",
         )
 
+        # Total weighted hinge loss
         loss = negative_loss + self.hparams["weight"] * positive_loss
 
         self.log("train_loss", loss, on_epoch=True, on_step=False, batch_size=1)
