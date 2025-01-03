@@ -16,12 +16,50 @@ from .event_utils import (
     get_modulewise_edges,
     get_orderwise_edges,
     get_time_ordered_true_edges,
-    process_particles,
 )
 
 from .heuristic_utils import get_layerwise_graph, get_all_edges, graph_intersection
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
+
+
+def process_particles(particles):
+    """Particles has duplicated records, drop duplicates."""
+    particles["nhits"] = particles.groupby(["particle_id"])["nhits"].transform("count")
+    particles.loc[particles.particle_id == 0, "nhits"] = -1
+    particles.drop_duplicates(inplace=True, ignore_index=True)
+    return particles
+
+
+def process_truth(truth):
+    """Create missing columns in the truth dataframe."""
+
+    if "nhits" not in truth.columns:
+        truth["nhits"] = truth.groupby("particle_id")["particle_id"].transform("count")
+        truth.loc[truth.particle_id == 0, "nhits"] = -1
+
+    if "weight" not in truth.columns:
+        # Count occurrences of each hit_id
+        hit_counts = truth["hit_id"].value_counts()
+
+        # Create weight mapping for each hit_id
+        hit_weights = 1 / len(hit_counts)
+
+        # Map weights to original dataframe
+        truth["weight"] = truth["hit_id"].map(lambda x: hit_weights)
+
+    return truth
+
+
+def signal_selection(particles):
+    """Special manipulation on particles data frame. One can exclude a particular
+    particle type to treat it as a noise. For example, if 'signal' is protons & pions
+    then every other particle will be treated as a noise, pass 'signal' from config."""
+
+    # select signal
+    signal = [-2212, 2212, -211, 211]  # in future pass signal from config file
+    particles = particles[particles["pdgcode"].isin(signal)].reset_index(drop=True)
+    return particles
 
 
 def select_hits(event_prefix: str, noise: bool, skewed: bool, **kwargs):
@@ -41,7 +79,7 @@ def select_hits(event_prefix: str, noise: bool, skewed: bool, **kwargs):
 
     # Apply particle selection (not nice, but works)
     if kwargs["selection"]:
-        particles = process_particles(particles)
+        particles = signal_selection(particles)
 
     # Handle noise
     if noise:
@@ -58,6 +96,8 @@ def select_hits(event_prefix: str, noise: bool, skewed: bool, **kwargs):
             on="particle_id",
             how="inner",
         )
+    # FIXME: Create missing columns (nhits, weight) in `truth`
+    # truth = process_truth(truth)
 
     # Derive new quantities from 'truth'
     px = truth.tpx
@@ -195,8 +235,7 @@ def build_event(
         logging.error(f"{inputedges} is not a valid method to build input graphs")
         exit(1)
 
-    # No weights of tracks in STT data yet, skipping it.
-    # Get edge weight
+    # Get edge weight (Not used yet, hence related code is commented out)
     # edge_weights = (
     #    hits.weight.to_numpy()[modulewise_true_edges]
     #    if modulewise
@@ -223,6 +262,8 @@ def build_event(
         hits.ptheta.to_numpy(),
         hits.peta.to_numpy(),
         hits.pphi.to_numpy(),
+        # hits.weight.to_numpy(),
+        # edge_weight_norm,
     )
 
 
@@ -268,6 +309,8 @@ def prepare_event(
                 ptheta,
                 peta,
                 pphi,
+                # hit_weights,
+                # edge_weights
             ) = build_event(
                 event_prefix=event_prefix,
                 feature_scale=feature_scale,
@@ -293,6 +336,8 @@ def prepare_event(
                 ptheta=torch.from_numpy(ptheta),
                 peta=torch.from_numpy(peta),
                 pphi=torch.from_numpy(pphi),
+                # hit_weights=torch.from_numpy(hit_weights),
+                # edge_weights=torch.from_numpy(edge_weights),
                 event_file=event_prefix,
             )
 

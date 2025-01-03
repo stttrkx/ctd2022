@@ -163,7 +163,8 @@ def get_orderwise_edges(hits):
     return true_edges
 
 
-def process_particles(particles):
+# --------------------- Move to trackml_event_utils.py
+def signal_selection(particles):
     """Special manipulation on particles data frame. One can exclude a particular
     particle type to treat it as a noise. For example, if 'signal' is protons & pions
     then every other particle will be treated as a noise, pass 'signal' from config."""
@@ -191,7 +192,7 @@ def select_hits(event_prefix: str, noise: bool, skewed: bool, **kwargs):
 
     # Apply particle selection (not nice, but works)
     if kwargs["selection"]:
-        particles = process_particles(particles)
+        particles = signal_selection(particles)
 
     # Handle noise
     if noise:
