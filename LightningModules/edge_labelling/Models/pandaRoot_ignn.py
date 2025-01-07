@@ -146,16 +146,22 @@ class pandaRoot_InteractionGNN(pandaRoot_GNNBase):
 
         # Senders and receivers
         start, end = edge_index
-        
+
         # Encode the graph features into the hidden space
         x.requires_grad = True
         x = checkpoint(self.node_encoder, x)
-        
-        e = checkpoint(self.edge_encoder, torch.cat([x[start], x[end]], dim=1))
-        
+
+        e = torch.cat([x[start], x[end]], dim=1)
+        e.requires_grad_(True)
+        e = checkpoint(self.edge_encoder, e)
+
         # Loop over iterations of edge and node networks
         for i in range(self.hparams["n_graph_iters"]):
+            x.requires_grad_(True)
+            e.requires_grad_(True)
             x, e = checkpoint(self.message_step, x, start, end, e)
-        
+
         # Compute final edge scores; use original edge directions only
+        x.requires_grad_(True)
+        e.requires_grad_(True)
         return checkpoint(self.output_step, x, start, end, e)

@@ -4,6 +4,8 @@
 import os
 import random
 import torch
+import tarfile
+from io import BytesIO
 from torch.utils.data import random_split
 
 # Find the current device.
@@ -59,25 +61,27 @@ def load_dataset(
     **kwargs
 ):
 
-    # Load dataset from a subdir
     if input_subdir is not None:
-        all_events = os.listdir(input_subdir)
+        with tarfile.open(input_subdir, "r:gz") as dataset_archive:
+            all_events = dataset_archive.getnames()
+            if "sorted_events" in kwargs.keys() and kwargs["sorted_events"]:
+                all_events = sorted(all_events)
+            else:
+                random.shuffle(all_events)
 
-        if "sorted_events" in kwargs.keys() and kwargs["sorted_events"]:
-            all_events = sorted(all_events)
-        else:
-            random.shuffle(all_events)
+            loaded_events = []
 
-        all_events = [os.path.join(input_subdir, event) for event in all_events]
-        loaded_events = [
-            torch.load(event, map_location=torch.device("cpu"))
-            for event in all_events[:num_events]
-        ]
+            for event in all_events[:num_events]:
+                file_member = dataset_archive.getmember(event)
+                file = dataset_archive.extractfile(file_member)
+                loaded_events.append(
+                    torch.load(BytesIO(file.read()), map_location=torch.device("cpu"))
+                )
 
-        loaded_events = select_data(
-            loaded_events, pt_background_cut, pt_signal_cut, noise
-        )
-        return loaded_events
+            loaded_events = select_data(
+                loaded_events, pt_background_cut, pt_signal_cut, noise
+            )
+            return loaded_events
     else:
         return None
 
