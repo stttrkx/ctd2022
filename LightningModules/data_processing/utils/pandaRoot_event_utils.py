@@ -192,6 +192,7 @@ def prepare_event(
     progress_bar: tqdm,
     overwrite: bool,
     input_edge_method: str,
+    min_hits: int,
     **kwargs,
 ) -> list:
     """
@@ -206,6 +207,7 @@ def prepare_event(
         progress_bar (tqdm): Progress bar object to track the processing of the events.
         overwrite (bool): Flag to overwrite the PyTorch files if they already exist.
         input_edge_method (str): Method to construct the input edges. Can be "all" or "layerwise".
+        min_hits (int): Minimum number of hits required in an event to be processed.
 
     Returns:
         list: Meta information of the event (currently mostly number of true/false edges).
@@ -225,7 +227,17 @@ def prepare_event(
         logging.warning(
             f"File {output_filename} already exists! Skipping event {event_id}..."
         )
-        return
+        return np.array(
+            [
+                event_id,
+                0,
+                0,
+                0,
+                0,
+                0,
+            ],
+            dtype=int,
+        )
 
     # Make create the processed data frame from the processed mcTrack information.
     processed_df = process_mcTracks(event, signal_signatures)
@@ -253,6 +265,24 @@ def prepare_event(
     # Redefine the hit ids and the index to be continuous after the cut hits.
     processed_df = processed_df.reset_index(drop=True)
     processed_df["hit_id"] = np.arange(len(processed_df))
+
+    # Check if the event has less hits than the minimum required.
+    logging.debug(f"Event {event_id} contains {len(processed_df)} hits.")
+    if len(processed_df) < min_hits:
+        logging.info(
+            f"Event {event_id} has only {len(processed_df)} hits! Skipping event..."
+        )
+        return np.array(
+            [
+                event_id,
+                0,
+                0,
+                0,
+                0,
+                len(processed_df),
+            ],
+            dtype=int,
+        )
 
     # Get the true edges using the true time order of the hits
     true_edges = get_time_ordered_true_edges(processed_df)
@@ -329,6 +359,7 @@ def prepare_event(
             new_input_edges.shape[1],
             y[y == True].shape[0],
             y[y == False].shape[0],
+            len(processed_df),
         ],
         dtype=int,
     )

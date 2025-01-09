@@ -203,6 +203,7 @@ class PandaRootFeatureStore(FeatureStoreBase):
                 "n_input_edges",
                 "n_true_input_edges",
                 "n_false_input_edges",
+                "n_hits",
             ],
             dtype=int,
         )
