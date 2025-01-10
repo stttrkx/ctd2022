@@ -1,7 +1,8 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-"""Embedding loss functions e.g. (weighted) hinge, triplet & cosine losses."""
+"""Embedding loss functions e.g. (weighted) hinge, triplet & cosine losses.
+This files is not intended to import directly, but to be copied into other"""
 
 import os
 import logging
@@ -10,6 +11,8 @@ from torch.utils.data import random_split
 from torch import nn
 import scipy as sp
 import numpy as np
+
+device = "cuda" if torch.cuda.is_available() else "cpu"
 
 
 # Main steering function for calculatig loss.
@@ -34,7 +37,7 @@ def loss_function(spatial, e_spatial, y_cluster, weights=None, loss_type="hinge"
     # Convert actual labels (0, 1) to hinge labels (-1, +1)
     hinge = 2 * y_cluster.float().to(self.device) - 1
 
-    return self.get_weighted_hinge_loss(hinge, d_sq, weights)
+    return self.get_weighted_hinge_loss_new(hinge, d_sq, weights)
 
 
 # Squared Euclidean distances between pairs.
@@ -75,7 +78,7 @@ def get_weighted_hinge_loss_new(hinge, d, weights):
     """
 
     # Hangle hinge margin (default: 0.1)
-    hinge_margin = self.hparams.get("margin", 0.1)
+    hinge_margin = self.hparams.get("margin", 0.1) ** 2
 
     # Essentially the same as get_weighted_hinge_loss(), it simply uses a weight
     # tensor instead of a scalar weight parameter. One way to calculate weighted

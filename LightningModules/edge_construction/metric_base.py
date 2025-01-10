@@ -24,12 +24,7 @@ import torch.nn.functional as F
 from pytorch_lightning import LightningModule
 from torch_geometric.loader import DataLoader
 from torch_geometric.data import Data
-from .utils.embedding_utils import (
-    split_datasets,
-    build_edges,
-    graph_intersection,
-    make_mlp,
-)
+from .utils.embedding_utils import split_datasets, build_edges, graph_intersection
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -48,16 +43,6 @@ class MetricBase(LightningModule):
 
         # Handle Datasets
         self.trainset, self.valset, self.testset = None, None, None
-
-        # Handle Model
-        in_channels = hparams["spatial_channels"]
-        self.network = make_mlp(
-            in_channels,
-            [hparams["emb_hidden"]] * hparams["nb_layer"] + [hparams["emb_dim"]],
-            hidden_activation=hparams["activation"],
-            output_activation=None,
-            layer_norm=True,
-        )
 
         # Save hyperparameters
         self.save_hyperparameters(hparams)
@@ -291,7 +276,7 @@ class MetricBase(LightningModule):
 
         return e_spatial, y_cluster, new_weights
 
-    # Custom Loss Functions
+    # Weighted Hinge Loss
     def get_hinge_distance(self, spatial, e_spatial, y_cluster):
         """Compute squared Euclidean distances between pairs of points and hinge labels.
         Args:
@@ -303,8 +288,6 @@ class MetricBase(LightningModule):
             d (torch.Tensor): Squared distances between reference and neighbour nodes of shape (num_edges,).
         """
         # Convert actual labels (0, 1) to hinge labels (-1, +1)
-        # hinge = y_cluster.float().to(self.device)
-        # hinge[hinge == 0] = -1
         hinge = 2 * y_cluster.float().to(self.device) - 1
 
         reference = spatial.index_select(0, e_spatial[1])
@@ -333,7 +316,7 @@ class MetricBase(LightningModule):
             torch.Tensor: The total weighted hinge loss.
         """
         # Hangle hinge margin (default: 0.1)
-        hinge_margin = self.hparams.get("margin", 0.1)
+        hinge_margin = self.hparams.get("margin", 0.1) ** 2
 
         # Negative loss: Push dissimilar pairs apart (hinge == -1)
         negative_mask = hinge == -1
@@ -354,8 +337,15 @@ class MetricBase(LightningModule):
         )
         positive_loss = weight * positive_loss
 
-        # Return total weighted hinge loss
-        return negative_loss + positive_loss
+        # Weighted hinge loss
+        weighted_loss = negative_loss + positive_loss
+
+        # Print loss values for debugging
+        print(f"Positive Loss: {positive_loss.item()}")
+        print(f"Negative Loss: {negative_loss.item()}")
+        print(f"Weighted Total Loss: {weighted_loss.item()}")
+
+        return weighted_loss
 
     # --------------------------- Training Functions ---------------------------
     def training_step(self, batch, batch_idx):
@@ -414,13 +404,13 @@ class MetricBase(LightningModule):
         # Note that there may still be TRUE examples that are weightless
         new_weights[hinge == -1] = 1  # no contribution from dissimlar pairs
 
-        # Weighted hinge loss (weight tensor affecting all edges)
+        # Weighted hinge loss where weight tensor affects all edges.
         # d = d * new_weights # early weighting to use "mean" reduction
         # loss = torch.nn.functional.hinge_embedding_loss(
         #    d, hinge, margin=self.hparams["margin"], reduction="mean"
         # )
 
-        # Weighted hinge loss (scalar weight affecting similar edges)
+        # Or, Weighted hinge loss where a scalar weight affects similar edges.
         loss = self.get_weighted_hinge_loss(hinge, d, self.hparams["weight"])
 
         self.log("train_loss", loss, on_epoch=True, on_step=False, batch_size=1)
