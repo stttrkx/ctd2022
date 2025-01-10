@@ -6,14 +6,16 @@ n_files: 10000
 n_workers: 4
 overwrite: True
 
-# Data Selection
-noise: False
-pt_signal_cut: .0
-pt_background_cut: .0
+# Data Selection, Loading and Splitting
+noise: True
+pt_signal_cut: 0
+pt_background_cut: 0
+min_nhits: 0
+primary_only: False
 train_split: [[8000, 1000, 1000]]
 true_edges: orderwise_true_edges
 
-# Model Params: Architecture
+# Model Architecture
 spatial_channels: 3
 cell_channels: 0
 emb_hidden: 1024
@@ -21,16 +23,16 @@ nb_layer: 4
 emb_dim: 12
 activation: Tanh
 
-# Model Params: Build Edges
+# Graph Building
 r_train: 0.1                      # kNN, radius for training
 r_val: 0.1                        # kNN, radius for validation
 r_test: 0.1                       # kNN, radius for testing
 knn: 100                          # kNN, k parameter for training
 randomisation: 2                  # used in append_random_pairs()
 points_per_batch: 100000          # used in get_query_points()
-regime: [[rp, hnm]]               # build hnm/random edge pairs (FIXME: abolish)
+regime: [[rp, hnm]]               # build hnm/random edge pairs
 
-# Model Params: Loss Function
+# Weighted Hinge Loss
 margin: 0.1                       # hinge margin for hinge_embedding_loss()
 weight: 2.0                       # edge weight for weighted_hinge_loss()
 
@@ -44,9 +46,7 @@ max_epochs: 30
 # Inference
 callbacks: [[EmbeddingBuilder]]
 
-
-# regime: currently following options are handled by regime parameter
+# regime: currently following options are handled by 'regime' hparam
 # 1. query_all_points, query_noise_points
 # 2. low_purity in append_hnm_pairs()
-# 3. rp, hnm in train_step()
-# 3. norm in forward(), I removed it as use norm always.
+# 3. rp, hnm in train_step(), I intend to remove it

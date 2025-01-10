@@ -28,6 +28,14 @@ from .utils.embedding_utils import split_datasets, build_edges, graph_intersecti
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    filename="training.log",
+    filemode="w",  # 'w' to overwrite, 'a' to append
+)
+logger = logging.getLogger(__name__)
+
 
 class MetricBase(LightningModule):
     def __init__(self, hparams: Dict[str, Any]):
@@ -46,10 +54,6 @@ class MetricBase(LightningModule):
 
         # Save hyperparameters
         self.save_hyperparameters(hparams)
-
-    def forward(self, x):
-        x_out = self.network(x)
-        return F.normalize(x_out)
 
     # Load Data
     def setup(self, stage: Optional[str] = "fit") -> None:
@@ -247,6 +251,7 @@ class MetricBase(LightningModule):
                 - Updated binary labels (y_cluster) for all edges
                 - Updated weights (new_weights) for all edges
         """
+
         # Append ground truth edges (e_bidir) to the current edge list (e_spatial)
         # This ensures all known true positive pairs are included in the training process
         e_spatial = torch.cat(
@@ -287,6 +292,7 @@ class MetricBase(LightningModule):
             hinge (torch.Tensor): Hinge labels (1 for similar, -1 for dissimilar) of shape (num_edges,).
             d (torch.Tensor): Squared distances between reference and neighbour nodes of shape (num_edges,).
         """
+
         # Convert actual labels (0, 1) to hinge labels (-1, +1)
         hinge = 2 * y_cluster.float().to(self.device) - 1
 
@@ -304,7 +310,7 @@ class MetricBase(LightningModule):
 
         return hinge, d_sq
 
-    def get_weighted_hinge_loss(self, hinge, d, weight):
+    def get_weighted_hinge_loss(self, hinge, d, weight, verbose=False):
         """Compute the weighted hinge loss for the embedding model. It uses "mean" reduction in
         hinge loss calculation, which is computationally more efficient. However, it only applies
         weight to similar edges. No way to adjust weights for dissimilar edges (disadvantage).
@@ -315,6 +321,7 @@ class MetricBase(LightningModule):
         Returns:
             torch.Tensor: The total weighted hinge loss.
         """
+
         # Hangle hinge margin (default: 0.1)
         hinge_margin = self.hparams.get("margin", 0.1) ** 2
 
@@ -341,13 +348,15 @@ class MetricBase(LightningModule):
         weighted_loss = negative_loss + positive_loss
 
         # Print loss values for debugging
-        print(f"Positive Loss: {positive_loss.item()}")
-        print(f"Negative Loss: {negative_loss.item()}")
-        print(f"Weighted Total Loss: {weighted_loss.item()}")
+        if verbose:
+            logger.info(f"Positive Loss: {positive_loss.item()}")
+            logger.info(f"Negative Loss: {negative_loss.item()}")
+            logger.info(f"Weighted Total Loss: {weighted_loss.item()}")
 
         return weighted_loss
 
     # --------------------------- Training Functions ---------------------------
+    # Training Step
     def training_step(self, batch, batch_idx):
         """Training step for the embedding model by using weighted hinge loss. We use
         two approaches for calculating the loss: one uses a single scalar weight that
@@ -479,9 +488,9 @@ class MetricBase(LightningModule):
 
         # Print metrics
         if verbose:
-            logging.info("Efficiency: {}".format(eff))
-            logging.info("Purity: {}".format(pur))
-            logging.info(batch.event_file)
+            logger.info("Efficiency: {}".format(eff))
+            logger.info("Purity: {}".format(pur))
+            logger.info(batch.event_file)
 
         return {
             "loss": loss,

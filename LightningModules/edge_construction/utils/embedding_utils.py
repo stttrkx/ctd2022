@@ -36,7 +36,7 @@ def split_datasets(
     train_split=None,
     pt_background_cut=0,
     pt_signal_cut=0,
-    nhits=0,
+    min_nhits=0,
     primary_only=False,
     true_edges=None,
     noise=True,
@@ -61,7 +61,7 @@ def split_datasets(
         sum(train_split),
         pt_background_cut,
         pt_signal_cut,
-        nhits,
+        min_nhits,
         primary_only,
         true_edges,
         noise,
@@ -76,10 +76,10 @@ def split_datasets(
 
 def load_dataset(
     input_dir,
-    num,
+    n_events,
     pt_background_cut,
     pt_signal_cut,
-    nhits,
+    min_nhits,
     primary_only,
     true_edges,
     noise,
@@ -94,7 +94,7 @@ def load_dataset(
 
         # load events needed
         loaded_events = []
-        for event in all_events[:num]:
+        for event in all_events[:n_events]:
             try:
                 loaded_event = torch.load(event, map_location=torch.device("cpu"))
                 loaded_events.append(loaded_event)
@@ -102,23 +102,23 @@ def load_dataset(
                 logging.info("Corrupted event file: {}".format(event))
 
         # apply selection on data
-        loaded_events = select_data(
+        selected_events = select_data(
             loaded_events,
             pt_background_cut,
             pt_signal_cut,
-            nhits,
+            min_nhits,
             primary_only,
             true_edges,
             noise,
         )
 
-        return loaded_events
+        return selected_events
     else:
         return None
 
 
 def select_data(
-    events, pt_background_cut, pt_signal_cut, nhits_min, primary_only, true_edges, noise
+    events, pt_background_cut, pt_signal_cut, min_nhits, primary_only, true_edges, noise
 ):
     """Select data fields, apply selection cuts and add new data fields."""
 
@@ -162,7 +162,7 @@ def select_data(
             edge_subset &= (event.pt[event[true_edges]] > pt_signal_cut).all(0)
 
         if "primary" in event.keys:
-            edge_subset &= (event.nhits[event[true_edges]] >= nhits_min).all(0)
+            edge_subset &= (event.nhits[event[true_edges]] >= min_nhits).all(0)
 
         if "nhits" in event.keys:
             edge_subset &= event.primary[event[true_edges]].bool().all(0) | (
