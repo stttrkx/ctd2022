@@ -6,11 +6,11 @@ a GPU, or not having FRNN, we import FAISS as the nearest neighbor library """
 
 import os
 import logging
-import torch
-from torch.utils.data import random_split
-from torch import nn
-import scipy as sp
 import numpy as np
+import scipy as sp
+import torch
+from torch import nn
+from torch.utils.data import random_split
 import faiss
 import faiss.contrib.torch_utils
 
@@ -30,8 +30,7 @@ else:
 FRNN_AVAILABLE = False
 
 
-# ---------------------------- Data Loading ----------------------------
-# Split dataset
+# ------------------------------- Data Handling --------------------------------
 def split_datasets(
     input_dir="",
     train_split=None,
@@ -75,7 +74,6 @@ def split_datasets(
     return train_events, val_events, test_events
 
 
-# Load dataset
 def load_dataset(
     input_dir,
     num,
@@ -197,7 +195,7 @@ def reset_edge_id(subset, graph):
     return graph, exist_edges
 
 
-# ---------------------------- Graph Building ----------------------------
+# ------------------------------- Graph Building -------------------------------
 def build_edges(
     query, database, indices=None, r_max=1.0, k_max=10, return_indices=False
 ):
@@ -282,6 +280,7 @@ def build_knn(spatial, k_max):
     return edge_list
 
 
+# ----------------------------- Graph Intersection -----------------------------
 def graph_intersection(
     pred_graph, truth_graph, using_weights=False, weights_bidir=None
 ):
@@ -341,9 +340,56 @@ def graph_intersection(
         return new_pred_graph, y
 
 
-# ---------------------------- Performance Evaluation ----------------------------
+# --------------------------- Dense Neural Network ----------------------------
+def make_mlp(
+    input_size,
+    sizes,
+    hidden_activation="ReLU",
+    output_activation="None",
+    layer_norm=False,
+    batch_norm=False,
+):
+    """Construct an MLP with Specified Fully-connected Layers."""
+
+    hidden_activation = getattr(nn, hidden_activation)
+    if output_activation is not None:
+        output_activation = getattr(nn, output_activation)
+
+    layers = []
+    n_layers = len(sizes)
+    sizes = [input_size] + sizes
+
+    # Hidden layers
+    for i in range(n_layers - 1):
+        layers.append(nn.Linear(sizes[i], sizes[i + 1]))
+
+        # LayerNorm & BatchNorm
+        if layer_norm:
+            layers.append(nn.LayerNorm(sizes[i + 1], elementwise_affine=False))
+        if batch_norm:
+            layers.append(
+                nn.BatchNorm1d(sizes[i + 1], affine=False, track_running_stats=False)
+            )
+
+        layers.append(hidden_activation())
+
+    # Final layer
+    layers.append(nn.Linear(sizes[-2], sizes[-1]))
+    if output_activation is not None:
+
+        # LayerNorm & BatchNorm
+        if layer_norm:
+            layers.append(nn.LayerNorm(sizes[-1], elementwise_affine=False))
+        if batch_norm:
+            layers.append(
+                nn.BatchNorm1d(sizes[-1], affine=False, track_running_stats=False)
+            )
+        layers.append(output_activation())
+
+    return nn.Sequential(*layers)
 
 
+# --------------------------- Performance Evaluation ---------------------------
 def get_best_run(run_label, wandb_save_dir):
     for root_dir, dirs, files in os.walk(wandb_save_dir + "/wandb"):
         if run_label in dirs:
@@ -357,17 +403,31 @@ def get_best_run(run_label, wandb_save_dir):
 
 
 def embedding_model_evaluation(model, trainer, fom="eff", fixed_value=0.96):
-    # Seed solver with one batch, then run on full test dataset
-    sol = root(
-        evaluate_set_root,
-        args=(model, trainer, fixed_value, fom),
-        x0=0.9,
-        x1=1.2,
-        xtol=0.001,
+    """
+    Evaluates a trained neural network model by finding an optimal radius value
+    that achieves a target performance metric.
+
+    Args:
+        model: The trained neural network (MLP) model
+        trainer: Training/evaluation handler object
+        fom: Figure of merit to optimize ("eff" likely means efficiency)
+        fixed_value: Target value (0.96 = 96%) for the optimization
+
+    Returns:
+        tuple: ((efficiency, purity), optimal_radius)
+    """
+    # Find the radius value where evaluate_set_root = 0
+    # This means: find radius where performance metric = fixed_value (96%)
+    sol = sp.optimize.root_scalar(
+        evaluate_set_root,  # Function that calculates: metric(radius) - fixed_value
+        bracket=[0.9, 1.2],  # Search for radius between 0.9 and 1.2
+        args=(model, trainer, fixed_value, fom),  # Pass needed objects and values
+        xtol=0.001,  # Stop when radius is found within 0.001 precision
     )
     print("Seed solver complete, radius:", sol.root)
 
-    # Return ( (efficiency, purity), radius_size)
+    # Use the found optimal radius to get final metrics
+    # evaluate_set_metrics likely returns (efficiency, purity) pair
     return evaluate_set_metrics(sol.root, model, trainer), sol.root
 
 
@@ -379,6 +439,17 @@ def evaluate_set_root(r, model, trainer, goal=0.96, fom="eff"):
 
     elif fom == "pur":
         return pur - goal
+
+
+def evaluate_set_metrics(r_test, model, trainer):
+    model.hparams.r_test = r_test
+    test_results = trainer.test(ckpt_path=None)
+
+    mean_efficiency, mean_purity = get_metrics(test_results, model)
+
+    print(mean_purity, mean_efficiency)
+
+    return mean_efficiency, mean_purity
 
 
 def get_metrics(test_results, model):
@@ -393,46 +464,3 @@ def get_metrics(test_results, model):
     mean_purity = np.mean(purities)
 
     return mean_efficiency, mean_purity
-
-
-def evaluate_set_metrics(r_test, model, trainer):
-    model.hparams.r_test = r_test
-    test_results = trainer.test(ckpt_path=None)
-
-    mean_efficiency, mean_purity = get_metrics(test_results, model)
-
-    print(mean_purity, mean_efficiency)
-
-    return mean_efficiency, mean_purity
-
-
-# ---------------------------- Convenience Utilities ----------------------------
-
-
-def make_mlp(
-    input_size,
-    sizes,
-    hidden_activation="ReLU",
-    output_activation="ReLU",
-    layer_norm=False,
-):
-    """Construct an MLP with specified fully-connected layers."""
-    hidden_activation = getattr(nn, hidden_activation)
-    if output_activation is not None:
-        output_activation = getattr(nn, output_activation)
-    layers = []
-    n_layers = len(sizes)
-    sizes = [input_size] + sizes
-    # Hidden layers
-    for i in range(n_layers - 1):
-        layers.append(nn.Linear(sizes[i], sizes[i + 1]))
-        if layer_norm:
-            layers.append(nn.LayerNorm(sizes[i + 1]))
-        layers.append(hidden_activation())
-    # Final layer
-    layers.append(nn.Linear(sizes[-2], sizes[-1]))
-    if output_activation is not None:
-        if layer_norm:
-            layers.append(nn.LayerNorm(sizes[-1]))
-        layers.append(output_activation)
-    return nn.Sequential(*layers)

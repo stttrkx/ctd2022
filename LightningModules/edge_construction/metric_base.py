@@ -14,6 +14,7 @@ Todo: Refactor the training & validation steps, since the use of different regim
 
 # TODO: MetricBase is exactly the same as EmbeddingBase. I intend to develop it
 # in PyTorch & PyTorch Lightning 2.x, hence I keep it separate from EmbeddingBase.
+# Once complete, it will replace EmbeddingBase as the base class everywhere.
 
 import os
 import torch
@@ -24,9 +25,9 @@ from pytorch_lightning import LightningModule
 from torch_geometric.loader import DataLoader
 from torch_geometric.data import Data
 from .utils.embedding_utils import (
-    graph_intersection,
     split_datasets,
     build_edges,
+    graph_intersection,
     make_mlp,
 )
 
@@ -331,27 +332,29 @@ class MetricBase(LightningModule):
         Returns:
             torch.Tensor: The total weighted hinge loss.
         """
-
-        # Handle hinge margin (always positive by squaring)
-        margin_squared = self.hparams["margin"] ** 2
+        # Hangle hinge margin (default: 0.1)
+        hinge_margin = self.hparams.get("margin", 0.1)
 
         # Negative loss: Push dissimilar pairs apart (hinge == -1)
+        negative_mask = hinge == -1
         negative_loss = torch.nn.functional.hinge_embedding_loss(
-            d[hinge == -1],
-            hinge[hinge == -1],
-            margin=margin_squared,
+            d[negative_mask],
+            hinge[negative_mask],
+            margin=hinge_margin,
             reduction="mean",
         )
 
         # Positive loss: Pull similar pairs closer (hinge == 1)
+        positive_mask = hinge == 1
         positive_loss = torch.nn.functional.hinge_embedding_loss(
-            d[hinge == 1],
-            hinge[hinge == 1],
-            margin=margin_squared,
+            d[positive_mask],
+            hinge[positive_mask],
+            margin=hinge_margin,
             reduction="mean",
         )
         positive_loss = weight * positive_loss
 
+        # Return total weighted hinge loss
         return negative_loss + positive_loss
 
     # --------------------------- Training Functions ---------------------------
@@ -407,21 +410,18 @@ class MetricBase(LightningModule):
         # Get squared Euclidean distance between pairs and hinge labels
         hinge, d = self.get_hinge_distance(spatial, e_spatial, y_cluster)
 
-        # (1) Use individual weights to calculate loss
-        # Give negative examples a weight of 1 (y_cluster==0 or hinge==-1).
+        # Give dissimlar pairs a weight of 1 (y_cluster==0 or hinge==-1).
         # Note that there may still be TRUE examples that are weightless
-        # new_weights[hinge == -1] = 1
+        new_weights[hinge == -1] = 1  # no contribution from dissimlar pairs
 
+        # Weighted hinge loss (weight tensor affecting all edges)
         # d = d * new_weights # early weighting to use "mean" reduction
         # loss = torch.nn.functional.hinge_embedding_loss(
         #    d, hinge, margin=self.hparams["margin"], reduction="mean"
         # )
 
-        # (2) Weighted hinge loss (scalar weight affecting similar edges, 1st approach)
+        # Weighted hinge loss (scalar weight affecting similar edges)
         loss = self.get_weighted_hinge_loss(hinge, d, self.hparams["weight"])
-
-        # (3) Weighted hinge loss (weight tensor affecting all edges, 2nd approach)
-        # loss = self.weighted_hinge_loss_new(y_cluster, d, new_weights)
 
         self.log("train_loss", loss, on_epoch=True, on_step=False, batch_size=1)
 

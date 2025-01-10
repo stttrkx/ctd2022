@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-"""Embedding loss functions, for example, ()weighted) hinge, triplet & cosine"""
+"""Embedding loss functions e.g. (weighted) hinge, triplet & cosine losses."""
 
 import os
 import logging
@@ -12,7 +12,7 @@ import scipy as sp
 import numpy as np
 
 
-# main steering function
+# Main steering function for calculatig loss.
 def loss_function(spatial, e_spatial, y_cluster, weights=None, loss_type="hinge"):
     """Steering function to compute loss (hinge, triplet or cosine).
     Args:
@@ -37,7 +37,7 @@ def loss_function(spatial, e_spatial, y_cluster, weights=None, loss_type="hinge"
     return self.get_weighted_hinge_loss(hinge, d_sq, weights)
 
 
-# ------------------------ Weighted Hinge Loss
+# Squared Euclidean distances between pairs.
 def squared_distances(spatial, e_spatial):
     """Compute squared Euclidean distances between pairs of points.
     Args:
@@ -61,6 +61,7 @@ def squared_distances(spatial, e_spatial):
     return d_sq
 
 
+# ------------------------ Weighted Hinge Loss
 def get_weighted_hinge_loss_new(hinge, d, weights):
     """Compute the weighted hinge loss for the embedding model. It uses "none" reduction in
     hinge loss calculation, requiring manual mean calculation. However, it only applies
@@ -72,21 +73,25 @@ def get_weighted_hinge_loss_new(hinge, d, weights):
     Returns:
         torch.Tensor: The total weighted hinge loss.
     """
-    # FIXME: Essentially the same as get_weighted_hinge_loss(), it simply uses weight
-    # tensor instead of a scalar weight parameter. I intend to expand it to complex
-    # weighting schemes e.g. -ve weight for dissimilar, 0 for some, +ve for similar.
-    # Consider keeping the "mean" reduction in loss calculation and applying weights
-    # earlier in calculation: d=d * weights, reduction="mean", comment line#427, 437).
 
     # Hangle hinge margin (default: 0.1)
-    margin_squared = self.hparams["margin"] ** 2
+    hinge_margin = self.hparams.get("margin", 0.1)
+
+    # Essentially the same as get_weighted_hinge_loss(), it simply uses a weight
+    # tensor instead of a scalar weight parameter. One way to calculate weighted
+    # loss is to apply weights early where reduction="mean" become possible. This
+    # can be achived by first weighting the distance, then calculating the loss:
+    # d = d * new_weights  # early weighting to use "mean" reduction
+    # weighted_loss = torch.nn.functional.hinge_embedding_loss(
+    #    d, hinge, margin=hinge_margin, reduction="mean"
+    # )  # gives same loss calculation as given below.
 
     # Negative loss: Push dissimilar pairs apart (hinge == -1)
     negative_mask = hinge == -1
     negative_loss = torch.nn.functional.hinge_embedding_loss(
         d[negative_mask],
         hinge[negative_mask],
-        margin=margin_squared,
+        margin=hinge_margin,
         reduction="none",
     )
     negative_loss = (negative_loss * weights[negative_mask]).mean()
@@ -96,17 +101,19 @@ def get_weighted_hinge_loss_new(hinge, d, weights):
     positive_loss = torch.nn.functional.hinge_embedding_loss(
         d[positive_mask],
         hinge[positive_mask],
-        margin=margin_squared,
+        margin=hinge_margin,
         reduction="none",
     )
     positive_loss = (positive_loss * weights[positive_mask]).mean()
 
-    # Return total weighted hinge loss
-    return negative_loss + positive_loss
+    # Weighted hinge loss
+    weighted_loss = negative_loss + positive_loss
+
+    return weighted_loss
 
 
 # gnn4itk-like loss, simple weight handling given by external 'weight' param
-def weighted_hinge_loss(y_cluster, d, weights):
+def weighted_hinge_loss_gnn4stt(y_cluster, d, weights):
     """Compute the weighted hinge loss for an embedding model. It uses
     actual edge labels (0, 1) with hinge labels (-1, 1) created on the fly.
 
@@ -118,11 +125,12 @@ def weighted_hinge_loss(y_cluster, d, weights):
     Returns:
         torch.Tensor: The total weighted hinge loss.
     """
-    # FIXME: To make it similar to weighted_hinge_loss_acorn(), understand
+
+    # FIXME: To make it similar to weighted_hinge_loss_gnn4itk(), understand
     # weighting scheme used. We've' weight given by self.hparams["weight"].
 
     # Hangle hinge margin (default: 0.1)
-    margin_squared = self.hparams["margin"] ** 2
+    hinge_margin = self.hparams.get("margin", 0.1) ** 2
 
     # Negative mask to handle weight signs and zeros
     negative_mask = ((y_cluster == 0) & (weights > 0)) | (
@@ -135,7 +143,7 @@ def weighted_hinge_loss(y_cluster, d, weights):
     negative_loss = torch.nn.functional.hinge_embedding_loss(
         d[negative_mask],
         torch.ones_like(d[negative_mask]) * -1,  # Hinge label is always -1
-        margin=margin_squared,
+        margin=hinge_margin,
         reduction="none",
     )
     # Use absolute weights
@@ -151,18 +159,20 @@ def weighted_hinge_loss(y_cluster, d, weights):
     positive_loss = torch.nn.functional.hinge_embedding_loss(
         d[positive_mask],
         torch.ones_like(d[positive_mask]),  # Hinge label is always +1
-        margin=margin_squared,
+        margin=hinge_margin,
         reduction="none",
     )
     # Use absolute weights
     positive_loss = (positive_loss * weights[positive_mask].abs()).mean()
 
-    # Return total weighted hinge loss
-    return negative_loss + positive_loss
+    # Weighted hinge loss
+    weighted_loss = negative_loss + positive_loss
+
+    return weighted_loss
 
 
 # gnn4itk loss, complex weight handling given by external ''weight_spec' param
-def weighted_hinge_loss_acorn(y_cluster, d, weights):
+def weighted_hinge_loss_gnn4itk(y_cluster, d, weights):
     """Compute the weighted hinge loss for an embedding model. It uses actual
     edge labels (0, 1) and converts them into hinge labels (-1, 1) on the fly.
 
@@ -175,6 +185,9 @@ def weighted_hinge_loss_acorn(y_cluster, d, weights):
         torch.Tensor: The total weighted hinge loss.
     """
 
+    # Hangle hinge margin (default: 0.1)
+    hinge_margin = self.hparams.get("margin", 0.1) ** 2
+
     # Negative mask to push dissimilar pairs apart
     negative_mask = ((y_cluster == 0) & (weights != 0)) | (weights < 0)
 
@@ -182,7 +195,7 @@ def weighted_hinge_loss_acorn(y_cluster, d, weights):
     negative_loss = torch.nn.functional.hinge_embedding_loss(
         d[negative_mask],
         torch.ones_like(d[negative_mask]) * -1,
-        margin=self.hparams["margin"] ** 2,
+        margin=hinge_margin,
         reduction="none",
     )
     # Now reduce the vector with non-zero weights
@@ -195,14 +208,16 @@ def weighted_hinge_loss_acorn(y_cluster, d, weights):
     positive_loss = torch.nn.functional.hinge_embedding_loss(
         d[positive_mask],
         torch.ones_like(d[positive_mask]),
-        margin=self.hparams["margin"] ** 2,
+        margin=hinge_margin,
         reduction="none",
     )
     # Now reduce the vector with non-zero weights
     positive_loss = (positive_loss * weights[positive_mask].abs()).mean()
 
-    # Return total weighted hinge loss
-    return negative_loss + positive_loss
+    # Weighted hinge loss
+    weighted_loss = negative_loss + positive_loss
+
+    return weighted_loss
 
 
 # ------------------------ Weighted Triplet Loss
@@ -214,6 +229,10 @@ def weighted_triplet_loss(
     new_weights: torch.Tensor,
 ) -> torch.Tensor:
 
+    # Hangle hinge margin (default: 0.1)
+    triplet_margin = self.hparams.get("triplet_margin", 1.0)
+
+    # Determine anchors and neighbors in embedding space
     anchors = spatial[e_spatial[0]]
     neighbors = spatial[e_spatial[1]]
 
@@ -235,7 +254,7 @@ def weighted_triplet_loss(
         anchors,
         positives,
         negatives,
-        margin=self.hparams.get("triplet_margin", 1.0),
+        margin=triplet_margin,
         reduction="none",
     )
 
