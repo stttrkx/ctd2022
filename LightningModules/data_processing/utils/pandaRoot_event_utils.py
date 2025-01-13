@@ -6,8 +6,13 @@ import pandas as pd
 
 from tqdm import tqdm
 from torch_geometric.data import Data
-from .heuristic_utils import get_all_edges, graph_intersection, get_layerwise_graph
-from .event_utils import get_time_ordered_true_edges
+from .heuristic_utils import (
+    get_all_edges,
+    graph_intersection,
+    get_layerwise_graph,
+    get_time_ordered_true_edges,
+    get_layerwise_graph_v2,
+)
 from .particle_utils import is_signal_particle, get_process_ids, get_all_mother_ids
 
 
@@ -300,6 +305,8 @@ def prepare_event(
             inneredges=kwargs["inneredges"],
             directional=kwargs["directional"],
         )
+    elif input_edge_method == "layerwise_v2":
+        input_edges = get_layerwise_graph_v2(processed_df, kwargs["filtering"])
 
     logging.info(
         f"Input graph built with method {input_edge_method} for {event_id} with size {input_edges.shape}"

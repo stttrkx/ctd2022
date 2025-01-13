@@ -343,6 +343,8 @@ class PandaRootFeatureStore(FeatureStoreBase):
                 logging.debug(f"Full chunk:\n{chunk}")
                 del digi_chunk
 
+                chunk = chunk[chunk.event_id < self.hparams["n_events"]]
+
                 # Create a progress bar for the current chunk
                 progress_bar = tqdm(total=chunk.shape[0])
 
@@ -356,18 +358,34 @@ class PandaRootFeatureStore(FeatureStoreBase):
                     **self.hparams,
                 )
 
-                # Execute the process_func in parallel for each event
-                with ThreadPoolExecutor(max_workers=self.n_workers) as executor:
-                    event_info_df = pd.concat(
-                        [
-                            event_info_df,
-                            pd.DataFrame(
-                                list(executor.map(process_func, chunk.itertuples())),
-                                columns=event_info_df.columns,
-                            ),
-                        ],
-                        ignore_index=True,
-                    )
+                # If there is only one worker don't use the ThreadPoolExecutor
+                if self.n_workers == 1:
+                    # Execute the process_func for each event in the chunk
+                    for event in chunk.itertuples():
+                        event_info_df = pd.concat(
+                            [
+                                event_info_df,
+                                pd.DataFrame(
+                                    [process_func(event)], columns=event_info_df.columns
+                                ),
+                            ],
+                            ignore_index=True,
+                        )
+                else:
+                    # Execute the process_func in parallel for each event
+                    with ThreadPoolExecutor(max_workers=self.n_workers) as executor:
+                        event_info_df = pd.concat(
+                            [
+                                event_info_df,
+                                pd.DataFrame(
+                                    list(
+                                        executor.map(process_func, chunk.itertuples())
+                                    ),
+                                    columns=event_info_df.columns,
+                                ),
+                            ],
+                            ignore_index=True,
+                        )
 
                 # Close the progress bar
                 progress_bar.close()
@@ -393,12 +411,12 @@ class PandaRootFeatureStore(FeatureStoreBase):
         n_missing_true_edges = n_true_edges - n_true_input_edges
 
         print("Total class imbalance:")
-        print(f"Percentage of true edges: {n_true_edges/n_input_edges*100:.2f}%")
+        print(f"Percentage of true edges: {n_true_input_edges/n_input_edges*100:.2f}%")
         print(
             f"Percentage of false edges: {n_false_input_edges/n_input_edges*100:.2f}%"
         )
 
-        if n_missing_true_edges > 0:
+        if n_missing_true_edges != 0:
             print(f"Total number of missing true edges: {n_missing_true_edges}")
             print(
                 f"Total input edge construction efficiency: {n_true_input_edges/n_true_edges*100:.2f}%"

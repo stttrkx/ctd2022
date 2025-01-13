@@ -224,3 +224,87 @@ def graph_intersection(pred_graph, truth_graph):
     del e_intersection
 
     return new_pred_graph, y
+
+
+def get_time_ordered_true_edges(hits):
+    """Get time ordered true edge list.  Here 'hits' represent complete event."""
+
+    true_edges_start = []
+    true_edges_end = []
+
+    # Sort by the time of the MC Points
+    for particle_id in hits.particle_id.unique():
+        sortedHits = hits.query(f"particle_id=={particle_id}").sort_values(
+            "tT", ascending=True
+        )
+        for hit in range(sortedHits.x.size - 1):
+            true_edges_start.append(sortedHits.index[hit])
+            true_edges_end.append(sortedHits.index[hit + 1])
+
+    true_edges = np.array([true_edges_start, true_edges_end])
+
+    # Add the reverse edges
+    true_edges = np.concatenate((true_edges, true_edges[[1, 0]]), axis=1)
+
+    return true_edges
+
+
+def get_layerwise_graph_v2(hits: pd.DataFrame, restrict_sectors: bool) -> np.ndarray:
+    """
+    Creates a tensor with the start and end hit IDs of the edges between hits in adjacent layers.
+
+    Args:
+        hits (pd.DataFrame): Data frame containing the hit information.
+        restrict_sectors (bool): Boolean flag to restrict edges to hits in adjacent sectors.
+
+    Returns:
+        np.ndarray: A 2xN tensor with the start and end hit IDs of the N edges.
+    """
+
+    # Sort the hits according to their layer ID
+    hits = hits.sort_values("layer_id")
+
+    # Get all layer ids in ascending order
+    layer_ids = hits.layer_id.unique()
+
+    # Get all hits and sector IDs in the first layer
+    first_hit_ids = hits[hits.layer_id == layer_ids[0]].hit_id
+    first_sector_ids = hits[hits.layer_id == layer_ids[0]].sector_id
+
+    # Create list for the hit IDs of the start end end node of an edge
+    edgeStart = []
+    edgeEnd = []
+
+    # Iterate over all layers with hits
+    for layer in range(1, len(layer_ids)):
+
+        # Get all hits and sector IDs in the next layer
+        second_hit_ids = hits[hits.layer_id == layer_ids[layer]].hit_id
+        second_sector_ids = hits[hits.layer_id == layer_ids[layer]].sector_id
+
+        # Concatenate the hit and sector IDs of the first and second layer
+        hit_ids = pd.concat([first_hit_ids, second_hit_ids])
+        sector_ids = pd.concat([first_sector_ids, second_sector_ids])
+
+        # Iterate over all possible edges between all hits
+        nHits = hit_ids.shape[0]
+        for start_index in range(nHits - 1):
+            for end_index in range(start_index + 1, nHits):
+                # Check if the edge is between hits in adjacent sectors if the "filtering" flag is set
+                if (
+                    abs(sector_ids.iloc[start_index] - sector_ids.iloc[end_index]) < 2
+                    or abs(sector_ids.iloc[start_index] - sector_ids.iloc[end_index])
+                    == 5
+                ) or not restrict_sectors:
+                    edgeStart.append(hit_ids.iloc[start_index])
+                    edgeEnd.append(hit_ids.iloc[end_index])
+
+        # The second layer becomes the first layer for the next iteration
+        first_hit_ids = second_hit_ids
+        first_sector_ids = second_sector_ids
+
+    # Create a 2xN tensor with the start end end hit IDs of the N edges
+    input_graph = np.array([edgeStart, edgeEnd])
+
+    # Return the input graph (edge tensor)
+    return input_graph
