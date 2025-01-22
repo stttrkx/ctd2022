@@ -29,6 +29,9 @@ else:
 
 FRNN_AVAILABLE = False
 
+# FIXME: This file should contain only node embedding utils e.g. MLP, and
+# Performance evaluation functions.
+
 
 # ------------------------------- Data Handling --------------------------------
 def split_datasets(
@@ -41,7 +44,7 @@ def split_datasets(
     true_edges=None,
     noise=True,
     seed=1,
-    **kwargs
+    **kwargs,
 ):
     """
     Prepare random train, val, and test split, using a seed for reproducibility.
@@ -65,7 +68,7 @@ def split_datasets(
         primary_only,
         true_edges,
         noise,
-        **kwargs
+        **kwargs,
     )
 
     # Split Dataset
@@ -83,7 +86,7 @@ def load_dataset(
     primary_only,
     true_edges,
     noise,
-    **kwargs
+    **kwargs,
 ):
     """Load events from an input directory upto a number."""
 
@@ -341,9 +344,103 @@ def graph_intersection(
 
 
 # --------------------------- Dense Neural Network ----------------------------
+def _get_activation(activation):
+    """Helper function to get activation function from string or class."""
+    if isinstance(activation, str):
+        if not hasattr(nn, activation):
+            raise ValueError(f"Unknown activation function: {activation}")
+        return getattr(nn, activation)
+    return activation
+
+
+def make_mlp_new(
+    input_size,
+    layer_sizes,
+    hidden_activation="ReLU",
+    output_activation=None,
+    layer_norm=False,
+    batch_norm=False,
+    dropout=0.0,
+    layer_kwargs=None,
+):
+    """Construct an MLP that can be used as a sub-component in larger architectures.
+
+    Suitable for use in GNNs, embedding models, and other neural architectures where
+    MLPs are used as message functions, update functions, or feature transformers.
+
+    Args:
+        input_size: Number of input features
+        layer_sizes: List of sizes for hidden layers and output layer
+        hidden_activation: Activation function for hidden layers (string name or class)
+        output_activation: Optional activation function for output layer (string name or class)
+        layer_norm: Whether to apply LayerNorm after each linear layer
+        batch_norm: Whether to apply BatchNorm after each linear layer
+        dropout: Dropout probability between layers (0.0 means no dropout)
+        layer_kwargs: Optional dict of kwargs to pass to linear layers
+
+    Returns:
+        nn.Sequential: Constructed MLP
+    """
+    # Input validation
+    if not layer_sizes:
+        raise ValueError("layer_sizes must not be empty")
+
+    if hidden_activation is None:
+        raise ValueError("hidden_activation must not be None")
+
+    # Convert activation function strings/classes to classes
+    hidden_activation = _get_activation(hidden_activation)
+    output_activation = _get_activation(output_activation)
+
+    # Initialize kwargs for Linear layers
+    layer_kwargs = layer_kwargs or {}
+
+    # Construct layer sizes including input
+    layers = []
+    sizes = [input_size] + layer_sizes
+    n_layers = len(layer_sizes)
+
+    # Build hidden layers
+    for i in range(n_layers - 1):
+        # Main linear transformation
+        layers.append(nn.Linear(sizes[i], sizes[i + 1], **layer_kwargs))
+
+        # Optional normalization layers (before activation)
+        if layer_norm:
+            # LayerNorm without learned affine parameters
+            layers.append(nn.LayerNorm(sizes[i + 1], elementwise_affine=False))
+        if batch_norm:
+            # BatchNorm without affine transforms or running stats
+            layers.append(
+                nn.BatchNorm1d(sizes[i + 1], affine=False, track_running_stats=False)
+            )
+
+        # Activation function
+        layers.append(hidden_activation())
+
+        # Optional dropout for regularization
+        if dropout > 0:
+            layers.append(nn.Dropout(p=dropout))
+
+    # Build output layer
+    layers.append(nn.Linear(sizes[-2], sizes[-1], **layer_kwargs))
+
+    # Add output normalization and activation if specified
+    if output_activation is not None:
+        if layer_norm:
+            layers.append(nn.LayerNorm(sizes[-1], elementwise_affine=False))
+        if batch_norm:
+            layers.append(
+                nn.BatchNorm1d(sizes[-1], affine=False, track_running_stats=False)
+            )
+        layers.append(output_activation())
+
+    return nn.Sequential(*layers)
+
+
 def make_mlp(
     input_size,
-    sizes,
+    layer_sizes,
     hidden_activation="ReLU",
     output_activation="None",
     layer_norm=False,
@@ -356,8 +453,8 @@ def make_mlp(
         output_activation = getattr(nn, output_activation)
 
     layers = []
-    n_layers = len(sizes)
-    sizes = [input_size] + sizes
+    n_layers = len(layer_sizes)
+    sizes = [input_size] + layer_sizes
 
     # Hidden layers
     for i in range(n_layers - 1):

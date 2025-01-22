@@ -2,7 +2,6 @@
 input_dir: ${EXATRKX_DATA}/run/data_processing
 output_dir: ${EXATRKX_DATA}/run/graph_construction
 project: MetricStudy
-n_files: 10000
 n_workers: 4
 overwrite: True
 
@@ -21,7 +20,7 @@ cell_channels: 0
 emb_hidden: 1024
 nb_layer: 4
 emb_dim: 12
-activation: Tanh
+activation: ReLU
 
 # Graph Building
 r_train: 0.1                      # kNN, radius for training

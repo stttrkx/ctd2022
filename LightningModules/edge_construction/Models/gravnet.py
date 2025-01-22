@@ -1,11 +1,13 @@
-import torch.nn as nn
+#!/usr/bin/env python
+# coding: utf-8
+
 import torch
-from torch_geometric.nn import knn_graph, radius_graph, aggr
+import torch.nn as nn
 from torch.nn import functional as F
 from torch.utils.checkpoint import checkpoint
-
-from .utils import make_mlp
-from .metric_learning import MetricLearning
+from torch_geometric.nn import knn_graph, radius_graph, aggr
+from ..utils.embedding_utils import make_mlp
+from ..metric_base import MetricBase as MetricLearning
 
 
 class GravNetMetricLearning(MetricLearning):

@@ -1,11 +1,12 @@
+#!/usr/bin/env python
+# coding: utf-8
+
 import torch
 import torch.nn.functional as F
 from torch.utils.checkpoint import checkpoint
 
-from .utils import make_mlp
-
-# 3rd party imports
-from .metric_learning import MetricLearning
+from ..metric_base import MetricBase as MetricLearning
+from ..utils.embedding_utils import make_mlp
 
 
 class TransformerMetricLearning(MetricLearning):

@@ -9,14 +9,13 @@ Todo:
     * Refactor the training & validation pipeline, since the use of the different regimes (rp, hnm, etc.) looks very messy
 """
 
-import logging
-
-# 3rd party imports
+import os
 import torch
-
-# Local Imports
-from .utils import build_edges
-from ..Embedding.embedding_base import EmbeddingBase
+import logging
+from pytorch_lightning import LightningModule
+from torch_geometric.loader import DataLoader
+from .embedding_base import EmbeddingBase
+from .utils.embedding_utils import build_edges
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
