@@ -123,6 +123,10 @@ def process_sttPoints(event: pd.Series, key_dict: dict) -> pd.DataFrame:
     # Calculate the pseudorapidity eta.
     sttP_dict["peta"] = -np.log(np.tan(sttP_dict["ptheta"] / 2.0))
 
+    # Calculate the local radius of the entering and exiting points of a track in a tube.
+    sttP_dict["r_in"] = np.sqrt(sttP_dict["x_in"] ** 2 + sttP_dict["y_in"] ** 2)
+    sttP_dict["r_out"] = np.sqrt(sttP_dict["x_out"] ** 2 + sttP_dict["y_out"] ** 2)
+
     # Create a pandas DataFrame from the sttPoint dictionary.
     sttP_df = pd.DataFrame(sttP_dict)
 
@@ -240,6 +244,8 @@ def prepare_event(
                 0,
                 0,
                 0,
+                0,
+                0,
             ],
             dtype=int,
         )
@@ -259,16 +265,53 @@ def prepare_event(
 
     # skip noise hits.
     if not kwargs["noise"]:
-        processed_df = processed_df.query("primary==1")
+        processed_df.query("primary==1", inplace=True)
 
     # skip skewed tubes
     if not kwargs["skewed"]:
-        processed_df = processed_df.query("skewed==0")
+        processed_df.query("skewed==0", inplace=True)
 
+    # count the number of hits with 0 deposited charge
+    n_zero_charge = len(processed_df.query("dep_charge==0"))
+
+    if kwargs["remove_shell_hits"]:
+        # skip hits with 0 deposited charge
+        processed_df.query("dep_charge!=0", inplace=True)
+    else:
+        # set the isochrone to the tube radius (0.5cm) if the deposited charge is 0
+        processed_df.loc[processed_df["dep_charge"] == 0, "isochrone"] = 0.5
+
+    if kwargs["merge_wire_hits"]:
+        # Get the row numbers of the hits that correspond to an incoming particle hitting the wire.
+        # These hits will have an outgoing local radius of less then tube (0.5cm) and the wire radius (0.001cm).
+        tol = 1e-10  # floating point tolerance
+        i_wire_hit = processed_df.query("r_out <= 0.001 + @tol").index
+
+        # In these cases the next hit should correspond to the particle leaving the wire as an ingoing hit.
+        i_wire_hit_next = i_wire_hit + 1
+
+        # Test this hypothesis
+        if not all(processed_df.loc[i_wire_hit_next, "r_in"] <= 0.001 + tol):
+            logging.error(
+                "The next hit after the wire hit does not correspond to the wire hit!"
+            )
+            exit(1)
+
+        # Now set the isochrones of the wire hits to 0 and throw away the second hit.
+        processed_df.loc[i_wire_hit, "isochrone"] = 0
+        processed_df.drop(i_wire_hit_next, inplace=True)
+
+    # count the number of times a particle (particle_id) leaves multiple hits in the same tube (module_id)
+    duplicate_hits = processed_df[
+        processed_df.duplicated(subset=["particle_id", "module_id"], keep="first")
+    ]
+    n_multi_hits = len(duplicate_hits)
+
+    # add the event id to the processed data frame.
     processed_df = processed_df.assign(event_id=event_id)
 
     # Redefine the hit ids and the index to be continuous after the cut hits.
-    processed_df = processed_df.reset_index(drop=True)
+    processed_df.reset_index(drop=True, inplace=True)
     processed_df["hit_id"] = np.arange(len(processed_df))
 
     # Check if the event has less hits than the minimum required.
@@ -285,6 +328,8 @@ def prepare_event(
                 0,
                 0,
                 len(processed_df),
+                n_zero_charge,
+                n_multi_hits,
             ],
             dtype=int,
         )
@@ -313,7 +358,7 @@ def prepare_event(
     )
 
     # feature scale for X=[r,phi,isochrone] (basically a normalization for the input features)
-    feature_scale = [100, np.pi, 100]
+    feature_scale = [42, np.pi, 0.5]
 
     # Build the PyTorch Geometric (PyG) 'Data' object
     data = Data(
@@ -330,6 +375,9 @@ def prepare_event(
         pphi=torch.from_numpy(processed_df["pphi"].to_numpy()),
         true_edges=torch.from_numpy(true_edges),
         primary=torch.from_numpy(processed_df["primary"].to_numpy()),
+        dep_charge=torch.from_numpy(processed_df["dep_charge"].to_numpy()),
+        r_in=torch.from_numpy(processed_df["r_in"].to_numpy()),
+        r_out=torch.from_numpy(processed_df["r_out"].to_numpy()),
         event_file=event_id,
     )
 
@@ -367,6 +415,8 @@ def prepare_event(
             y[y == True].shape[0],
             y[y == False].shape[0],
             len(processed_df),
+            n_zero_charge,
+            n_multi_hits,
         ],
         dtype=int,
     )

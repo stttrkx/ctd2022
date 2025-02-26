@@ -1,26 +1,39 @@
 # This example file contains all available options for the processing stage with short descriptions.
 # Optional fields are marked with a # Optional comment.
 
-# Input directory with the .csv files
+# Input directory with the digi and sim directories containing the .root files
 input_dir :  "/home/nikin105/mlProject/data/simulations/mum5mup5/root"
 
 # Prefix of the input files
 prefix : "new_mum5mup5"
 
 # Output directory for the pyTorch geometry files
-output_dir : "/home/nikin105/mlProject/data/machineLearning/mum5mup5_testing"
+output_dir : "/home/nikin105/mlProject/data/machineLearning/mum5mup5/processed_files/test"
 
-signal_signature_file : "/home/nikin105/mlProject/visualization/simulationChain/signal_signatures/signal_signature_mum5mup5.yaml"
+# Config YAML file containing the particle ids and process codes of the generated signal process 
+signal_signature_file : "/home/nikin105/mlProject/data/signal_signatures/signal_signature_mum5mup5.yaml"
+
+# Input edge construction method ("all", "layerwise", "layerwise_v2")
+input_edge_method : "layerwise_v2"
+
+# Options for the layerwise input edge construction
+filtering   : True  # If True, get input edges without adjacent sectors.
+inneredges  : True # If True construct edges between hits in the same layer.
+directional : True # If True, excludes self-loops on samelayer edges. (This currently seems to break some true edges)
 
 # - Parallelization parameters - 
-overwrite : True  # ?
-n_files   : 1     # ?
-n_workers : 8     # ?
-n_tasks   : 1     # ?
-chunksize : 10    # ?
-events_per_step: 10000 # ?
+overwrite : True  # If True, overwrite existing files
+n_files   : 1     # Number of files to process (1 = one digi and one sim file)
+n_events  : 100  # Number of events to process
+n_workers : 8     # Number of workers for parallel processing
+n_tasks   : -1    # Currently not used but a mandatory parameter for the pipeline
+chunksize : -1    # Currently not used but a mandatory parameter for the pipeline
+events_per_step: 10000 # Number of events that are loaded into memory at once
 
 # - Filter -
-noise     : True  # If True, include hits from secondary processes, e.g., e- from Bremsstrahlung.
-skewed    : True  # If True, include skewed layers for the graph construction.
-filtering : True  # If True, get input edges without adjacent sectors
+noise             : False  # If True, include hits from secondary processes, e.g., e- from Bremsstrahlung.
+skewed            : False  # If True, include skewed layers for the graph construction.
+min_hits          : 7      # Minimum number of hits per event
+remove_shell_hits : False  # If True, remove hits with 0 deposited charge / hits in the shell of the tube.
+                           # If False, the isochrone of the shell hit is set to the tube radius (0.5cm).
+merge_wire_hits   : True   # If True, merge two hits which come from a track passing through the wire into one hit with an isochrone of 0.

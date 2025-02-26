@@ -204,6 +204,8 @@ class PandaRootFeatureStore(FeatureStoreBase):
                 "n_true_input_edges",
                 "n_false_input_edges",
                 "n_hits",
+                "n_zero_charge_hits",
+                "n_multi_hits",
             ],
             dtype=int,
         )
@@ -242,6 +244,10 @@ class PandaRootFeatureStore(FeatureStoreBase):
             "STTPoint.fPy": "tpy",
             "STTPoint.fPz": "tpz",
             "STTPoint.fTrackID": "particle_id",
+            "STTPoint.fX_out_local": "x_out",
+            "STTPoint.fY_out_local": "y_out",
+            "STTPoint.fX_in_local": "x_in",
+            "STTPoint.fY_in_local": "y_in",
         }
 
         mcTrack_branch_dict = {
@@ -262,6 +268,7 @@ class PandaRootFeatureStore(FeatureStoreBase):
             "STTHit.fDetectorID": "volume_id",
             "STTHit.fTubeID": "module_id",
             "STTHit.fIsochrone": "isochrone",
+            "STTHit.fDepCharge": "dep_charge",
         }
 
         # Dictionary containing the keys of the data frame for the different branch types
