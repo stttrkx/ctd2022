@@ -352,6 +352,10 @@ class PandaRootFeatureStore(FeatureStoreBase):
 
                 chunk = chunk[chunk.event_id < self.hparams["n_events"]]
 
+                if chunk.empty:
+                    logging.warning("The max amount of events has been reached. Skipping this step.")
+                    continue
+
                 # Create a progress bar for the current chunk
                 progress_bar = tqdm(total=chunk.shape[0])
 

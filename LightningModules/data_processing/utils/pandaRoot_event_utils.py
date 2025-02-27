@@ -298,7 +298,7 @@ def prepare_event(
             exit(1)
 
         # Now set the isochrones of the wire hits to 0 and throw away the second hit.
-        processed_df.loc[i_wire_hit, "isochrone"] = 0
+        processed_df.loc[i_wire_hit, "isochrone"] = 0.0
         processed_df.drop(i_wire_hit_next, inplace=True)
 
     # count the number of times a particle (particle_id) leaves multiple hits in the same tube (module_id)
@@ -308,7 +308,7 @@ def prepare_event(
     n_multi_hits = len(duplicate_hits)
 
     # add the event id to the processed data frame.
-    processed_df = processed_df.assign(event_id=event_id)
+    processed_df.assign(event_id=event_id, inplace=True)
 
     # Redefine the hit ids and the index to be continuous after the cut hits.
     processed_df.reset_index(drop=True, inplace=True)
